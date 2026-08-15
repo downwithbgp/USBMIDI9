@@ -2,10 +2,17 @@
  * Host tests for the safe descriptor walker (core/descriptors.h) and the
  * MIDIStreaming topology/ports parser (core/ports.h).
  *
- * The primary fixture is a SYNTHETIC descriptor buffer modeled on the
- * Evolution eKeys-49 / Keystation 49e topology documented in
- * docs/hardware.md. It is not captured from a real device; real raw bytes
- * are not available yet (fixtures/keystation-49e.bin is reserved for them).
+ * Two fixtures are used:
+ *
+ *  - keystation_model below is a SYNTHETIC descriptor buffer modeled on the
+ *    Evolution eKeys-49 / Keystation 49e topology documented in
+ *    docs/hardware.md. It is retained because it exercises malformed-input
+ *    and boundary cases the real capture does not.
+ *
+ *  - fixtures/keystation-49e.bin is the REAL 119-byte descriptor capture
+ *    from the physical device (18-byte device descriptor plus 101-byte
+ *    configuration descriptor, configuration wTotalLength 0x0065), read
+ *    from disk by test_real_keystation_fixture().
  *
  * Portable C (C89/C90).
  */
@@ -56,10 +63,12 @@ static const unsigned char keystation_model[] = {
     0x06u, 0x24u, 0x02u, 0x01u, 0x01u, 0x00u,
     /* CS_INTERFACE: MIDI IN jack 2 (external) */
     0x06u, 0x24u, 0x02u, 0x02u, 0x02u, 0x00u,
-    /* CS_INTERFACE: MIDI OUT jack 3 (embedded), 1 source pin -> jack 2 */
-    0x09u, 0x24u, 0x03u, 0x03u, 0x01u, 0x01u, 0x02u, 0x00u, 0x00u,
+    /* CS_INTERFACE: MIDI OUT jack 3 (embedded), 1 source pin -> jack 2.
+     * NOTE: USB-MIDI 1.0 lays out MIDI OUT jacks as bJackType (offset 3)
+     * before bJackID (offset 4), the reverse of MIDI IN jacks. */
+    0x09u, 0x24u, 0x03u, 0x01u, 0x03u, 0x01u, 0x02u, 0x00u, 0x00u,
     /* CS_INTERFACE: MIDI OUT jack 4 (external), 1 source pin -> jack 1 */
-    0x09u, 0x24u, 0x03u, 0x04u, 0x02u, 0x01u, 0x01u, 0x00u, 0x00u,
+    0x09u, 0x24u, 0x03u, 0x02u, 0x04u, 0x01u, 0x01u, 0x00u, 0x00u,
     /* Standard endpoint 0x81, bulk, max packet 64 */
     0x09u, 0x05u, 0x81u, 0x02u, 0x40u, 0x00u, 0x00u, 0x00u, 0x00u,
     /* CS_ENDPOINT: MS general, 1 embedded jack -> 3 */
@@ -202,9 +211,12 @@ static void test_ms_parse_fixture(void)
     /* Endpoint 0x81 (IN) -> embedded jack 3; endpoint 0x02 (OUT) -> jack 1. */
     CHECK(info.endpoints[0].address == 0x81u);
     CHECK(info.endpoints[0].attributes == 0x02u);
+    CHECK(info.endpoints[0].max_packet_size == 64u);
     CHECK(info.endpoints[0].num_embedded == 1u);
     CHECK(info.endpoints[0].embedded_ids[0] == 3u);
     CHECK(info.endpoints[1].address == 0x02u);
+    CHECK(info.endpoints[1].attributes == 0x02u);
+    CHECK(info.endpoints[1].max_packet_size == 64u);
     CHECK(info.endpoints[1].num_embedded == 1u);
     CHECK(info.endpoints[1].embedded_ids[0] == 1u);
 
@@ -285,6 +297,126 @@ static void test_ms_parse_malformed(void)
     CHECK(um9_ports_from_ms(NULL, &ports) == 0);
 }
 
+/* Parse the REAL descriptor capture (fixtures/keystation-49e.bin) through
+ * the generic parser and verify the observed device properties. The capture
+ * is 119 bytes: an 18-byte device descriptor plus a 101-byte configuration
+ * descriptor set (configuration wTotalLength 0x0065). No Keystation-specific
+ * parsing logic exists in the production code; only the generic walker and
+ * topology parser are exercised. */
+static void test_real_keystation_fixture(void)
+{
+    static const char path[] = "fixtures/keystation-49e.bin";
+    unsigned char buf[256];
+    FILE *f;
+    size_t got;
+    um9_ms_info info;
+    um9_ports ports;
+    unsigned i;
+    int jack_seen;
+
+    f = fopen(path, "rb");
+    if (f == NULL) {
+        fail("cannot open fixtures/keystation-49e.bin", __FILE__, __LINE__);
+        return;
+    }
+    got = fread(buf, 1u, sizeof(buf), f);
+    fclose(f);
+    CHECK((unsigned)got == 119u);
+
+    CHECK(um9_ms_parse(buf, (unsigned)got, &info) == 1);
+
+    /* Device identity from the standard device descriptor. */
+    CHECK(info.vid == 0x0a4du);
+    CHECK(info.pid == 0x0090u);
+
+    /* One MIDIStreaming interface: number 1, Audio/MIDIStreaming class. */
+    CHECK(info.found == 1u);
+    CHECK(info.interface_number == 1u);
+    CHECK(info.interface_class == 0x01u);
+    CHECK(info.interface_subclass == 0x03u);
+    CHECK(info.num_endpoints_declared == 2u);
+
+    /* MS header: version and class-specific set length. */
+    CHECK(info.bcd_msc == 0x0100u);
+    CHECK(info.wtotal_length == 0x0041u);
+
+    /* Jacks: 2 MIDI IN (embedded 1, external 2), 2 MIDI OUT (embedded 3
+     * sourced from jack 2, external 4 sourced from jack 1). */
+    CHECK(info.num_in_jacks == 2u);
+    CHECK(info.num_out_jacks == 2u);
+    CHECK(info.num_jacks == 4u);
+
+    jack_seen = 0;
+    for (i = 0u; i < info.num_jacks; i++) {
+        if (info.jacks[i].id == 1u) {
+            jack_seen = 1;
+            CHECK(info.jacks[i].type == UM9_JACK_EMBEDDED);
+            CHECK(info.jacks[i].direction == UM9_JACK_DIR_IN);
+        }
+    }
+    CHECK(jack_seen == 1);
+
+    jack_seen = 0;
+    for (i = 0u; i < info.num_jacks; i++) {
+        if (info.jacks[i].id == 2u) {
+            jack_seen = 1;
+            CHECK(info.jacks[i].type == UM9_JACK_EXTERNAL);
+            CHECK(info.jacks[i].direction == UM9_JACK_DIR_IN);
+        }
+    }
+    CHECK(jack_seen == 1);
+
+    jack_seen = 0;
+    for (i = 0u; i < info.num_jacks; i++) {
+        if (info.jacks[i].id == 3u) {
+            jack_seen = 1;
+            CHECK(info.jacks[i].type == UM9_JACK_EMBEDDED);
+            CHECK(info.jacks[i].direction == UM9_JACK_DIR_OUT);
+            CHECK(info.jacks[i].num_sources == 1u);
+            CHECK(info.jacks[i].source_ids[0] == 2u);   /* sourced from jack 2 */
+        }
+    }
+    CHECK(jack_seen == 1);
+
+    jack_seen = 0;
+    for (i = 0u; i < info.num_jacks; i++) {
+        if (info.jacks[i].id == 4u) {
+            jack_seen = 1;
+            CHECK(info.jacks[i].type == UM9_JACK_EXTERNAL);
+            CHECK(info.jacks[i].direction == UM9_JACK_DIR_OUT);
+            CHECK(info.jacks[i].num_sources == 1u);
+            CHECK(info.jacks[i].source_ids[0] == 1u);   /* sourced from jack 1 */
+        }
+    }
+    CHECK(jack_seen == 1);
+
+    /* Bulk endpoints with their embedded jack associations. */
+    CHECK(info.num_endpoints == 2u);
+    CHECK(info.endpoints[0].address == 0x81u);
+    CHECK(info.endpoints[0].attributes == 0x02u);        /* bulk */
+    CHECK(info.endpoints[0].max_packet_size == 64u);
+    CHECK(info.endpoints[0].num_embedded == 1u);
+    CHECK(info.endpoints[0].embedded_ids[0] == 3u);
+    CHECK(info.endpoints[1].address == 0x02u);
+    CHECK(info.endpoints[1].attributes == 0x02u);        /* bulk */
+    CHECK(info.endpoints[1].max_packet_size == 64u);
+    CHECK(info.endpoints[1].num_embedded == 1u);
+    CHECK(info.endpoints[1].embedded_ids[0] == 1u);
+
+    /* Logical ports: one input (EP 0x81, cable 0, jack 3) and one output
+     * (EP 0x02, cable 0, jack 1). */
+    CHECK(um9_ports_parse(buf, (unsigned)got, &ports) == 1);
+    CHECK(ports.count == 2u);
+    CHECK(ports.ports[0].endpoint_address == 0x81u);
+    CHECK(ports.ports[0].direction == UM9_PORT_DIR_IN);
+    CHECK(ports.ports[0].cable == 0u);
+    CHECK(ports.ports[0].embedded_jack_id == 3u);
+    CHECK(ports.ports[1].endpoint_address == 0x02u);
+    CHECK(ports.ports[1].direction == UM9_PORT_DIR_OUT);
+    CHECK(ports.ports[1].cable == 0u);
+    CHECK(ports.ports[1].embedded_jack_id == 1u);
+}
+
 int test_descriptors_run(void)
 {
     g_failures = 0;
@@ -295,5 +427,6 @@ int test_descriptors_run(void)
     test_ms_parse_stops_at_next_interface();
     test_ms_parse_no_ms_interface();
     test_ms_parse_malformed();
+    test_real_keystation_fixture();
     return g_failures;
 }

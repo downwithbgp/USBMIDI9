@@ -6,8 +6,9 @@
 # NOTE: this is NOT a captured `lsusb -v` dump. It is a text record of the
 # initial hardware survey (see docs/hardware.md). Fields marked
 # "(not observed)" were not available and must not be treated as measured.
-# fixtures/keystation-49e.bin is reserved for a real binary descriptor
-# capture, which is not available yet.
+# The real binary descriptor capture is fixtures/keystation-49e.bin
+# (119 bytes: device descriptor + configuration descriptor set), read from
+# Linux sysfs; fixtures/keystation-49e.bin is parsed by the host tests.
 
 Device:
   VID:PID                0a4d:0090

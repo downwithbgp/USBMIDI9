@@ -51,17 +51,24 @@ This follows the standard USB-MIDI 1.0 descriptor model
 
 ## Fixtures
 
+* `fixtures/keystation-49e.bin` — **empirical binary descriptor capture** from
+  the physical device, read from Linux sysfs (119 bytes: an 18-byte device
+  descriptor plus a 101-byte configuration descriptor set; configuration
+  `wTotalLength` 0x0065). Parsed and verified by
+  `tests/test_descriptors.c` (`test_real_keystation_fixture`).
 * `fixtures/keystation-49e-lsusb.txt` — the text record above, formatted for
   easy diffing; clearly not a captured `lsusb -v` dump (fields marked
   "not observed" were not available).
-* `fixtures/keystation-49e.bin` — reserved for a binary descriptor capture
-  from the real device; currently empty.
-* `tests/test_descriptors.c` — a synthetic descriptor buffer modeled on this
-  topology (labeled as such in the source).
+* `tests/test_descriptors.c` — also contains a synthetic descriptor buffer
+  modeled on this topology (labeled as such in the source), retained because
+  it exercises malformed-input and boundary cases the real capture does not.
 
 ## Status
 
 * Not yet validated on Mac OS 9: no working driver exists yet (M0).
+* The real descriptor capture is now parsed correctly by the portable core on
+  Linux (M0 verification), including a fix this capture prompted for the
+  USB-MIDI 1.0 MIDI OUT jack field layout (bJackType precedes bJackID).
 * M1 (Classic USB probe) will enumerate this device on the Power Mac G4,
   inspect descriptors, open the MIDIStreaming interface, and read endpoint
   `0x81` — pending verified Classic USB APIs (see `docs/research.md`).

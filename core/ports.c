@@ -31,7 +31,8 @@ static um9_jack *um9_ms_add_jack(um9_ms_info *out, unsigned direction)
 }
 
 static um9_endpoint *um9_ms_add_endpoint(um9_ms_info *out, unsigned address,
-                                         unsigned attributes)
+                                         unsigned attributes,
+                                         unsigned max_packet_size)
 {
     um9_endpoint *ep;
 
@@ -43,6 +44,7 @@ static um9_endpoint *um9_ms_add_endpoint(um9_ms_info *out, unsigned address,
     ep->valid = 1;
     ep->address = address;
     ep->attributes = attributes;
+    ep->max_packet_size = max_packet_size;
     ep->num_embedded = 0u;
     return ep;
 }
@@ -53,6 +55,7 @@ int um9_ms_parse(const unsigned char *buf, unsigned len, um9_ms_info *out)
     int in_ms;
     unsigned cur_ep_address;
     unsigned cur_ep_attributes;
+    unsigned cur_ep_max_packet;
 
     if (out == NULL) {
         return 0;
@@ -62,10 +65,18 @@ int um9_ms_parse(const unsigned char *buf, unsigned len, um9_ms_info *out)
     in_ms = 0;
     cur_ep_address = 0u;
     cur_ep_attributes = 0u;
+    cur_ep_max_packet = 0u;
 
     um9_desc_iter_init(&it, buf, len);
     while (um9_desc_iter_next(&it)) {
         if (!in_ms) {
+            /* Device-level identity from the standard device descriptor
+             * (idVendor at offset 8, idProduct at offset 10, both LE). */
+            if (it.btype == UM9_DT_DEVICE && it.blen >= 18u) {
+                out->vid = um9_desc_u16le(&it, 8u);
+                out->pid = um9_desc_u16le(&it, 10u);
+                continue;
+            }
             if (it.btype == UM9_DT_INTERFACE && it.blen >= 9u
                 && um9_desc_u8(&it, 5u) == UM9_AUDIO_CLASS
                 && um9_desc_u8(&it, 6u) == UM9_MIDISTREAMING_SUBCLASS) {
@@ -74,6 +85,8 @@ int um9_ms_parse(const unsigned char *buf, unsigned len, um9_ms_info *out)
                 out->interface_number = um9_desc_u8(&it, 2u);
                 out->alternate_setting = um9_desc_u8(&it, 3u);
                 out->num_endpoints_declared = um9_desc_u8(&it, 4u);
+                out->interface_class = um9_desc_u8(&it, 5u);
+                out->interface_subclass = um9_desc_u8(&it, 6u);
             }
             continue;
         }
@@ -88,6 +101,7 @@ int um9_ms_parse(const unsigned char *buf, unsigned len, um9_ms_info *out)
         if (it.btype == UM9_DT_ENDPOINT && it.blen >= 7u) {
             cur_ep_address = um9_desc_u8(&it, 2u);
             cur_ep_attributes = um9_desc_u8(&it, 3u);
+            cur_ep_max_packet = um9_desc_u16le(&it, 4u);
             continue;
         }
 
@@ -108,8 +122,11 @@ int um9_ms_parse(const unsigned char *buf, unsigned len, um9_ms_info *out)
                 unsigned i;
                 um9_jack *jack = um9_ms_add_jack(out, UM9_JACK_DIR_OUT);
                 if (jack != NULL) {
-                    jack->id = um9_desc_u8(&it, 3u);
-                    jack->type = um9_desc_u8(&it, 4u);
+                    /* NOTE: per USB-MIDI 1.0 the MIDI OUT jack layout is
+                     * bJackType at offset 3 and bJackID at offset 4 — the
+                     * reverse of the MIDI IN jack layout. */
+                    jack->type = um9_desc_u8(&it, 3u);
+                    jack->id = um9_desc_u8(&it, 4u);
                     if (npins > UM9_MAX_JACK_SOURCES) {
                         npins = UM9_MAX_JACK_SOURCES;
                     }
@@ -133,7 +150,8 @@ int um9_ms_parse(const unsigned char *buf, unsigned len, um9_ms_info *out)
                 unsigned n = um9_desc_u8(&it, 3u);
                 unsigned i;
                 um9_endpoint *ep = um9_ms_add_endpoint(out, cur_ep_address,
-                                                       cur_ep_attributes);
+                                                       cur_ep_attributes,
+                                                       cur_ep_max_packet);
                 if (ep != NULL) {
                     if (n > UM9_MAX_EMBEDDED_JACKS) {
                         n = UM9_MAX_EMBEDDED_JACKS;

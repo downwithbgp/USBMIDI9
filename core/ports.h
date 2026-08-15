@@ -55,6 +55,7 @@ typedef struct um9_endpoint {
     unsigned valid;             /* 1 once populated */
     unsigned address;           /* bEndpointAddress */
     unsigned attributes;        /* bmAttributes */
+    unsigned max_packet_size;   /* wMaxPacketSize */
     unsigned num_embedded;      /* bNumEmbMIDIJack */
     unsigned embedded_ids[UM9_MAX_EMBEDDED_JACKS];  /* baAssocJackID list */
 } um9_endpoint;
@@ -62,8 +63,12 @@ typedef struct um9_endpoint {
 /* Summary of the first MIDIStreaming interface found in a buffer. */
 typedef struct um9_ms_info {
     unsigned found;             /* 1 if a MIDIStreaming interface was found */
+    unsigned vid;               /* idVendor of the first device descriptor in the buffer (0 if none) */
+    unsigned pid;               /* idProduct, likewise */
     unsigned interface_number;  /* bInterfaceNumber */
     unsigned alternate_setting; /* bAlternateSetting */
+    unsigned interface_class;   /* bInterfaceClass of the found interface */
+    unsigned interface_subclass; /* bInterfaceSubClass of the found interface */
     unsigned num_endpoints_declared;  /* bNumEndpoints */
     unsigned bcd_msc;           /* MS header bcdMSC */
     unsigned wtotal_length;     /* MS header wTotalLength */
