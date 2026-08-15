@@ -5,3 +5,6 @@
 # Editor/OS droppings
 *.swp
 .DS_Store
+
+# Reasonix tooling state
+.reasonix/

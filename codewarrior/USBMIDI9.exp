@@ -1,0 +1,12 @@
+#
+#	USBMIDI9 CodeWarrior linker export list.
+#
+#	Exported symbols of the USBMIDI9 interface class driver fragment.
+#	The first two are required by the Mac OS USB software
+#	(USBClassDriver.exp precedent, DDK 1.4.1 Interfaces/); the third is
+#	the USBMIDI9-specific dispatch table used by the Probe and future
+#	shims (Rev 26 Ch 4 p. 76; HID module .exp precedent).
+#
+TheUSBDriverDescription
+TheClassDriverPluginDispatchTable
+USBMIDI9DispatchTable

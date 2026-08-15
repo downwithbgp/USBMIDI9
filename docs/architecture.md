@@ -42,13 +42,18 @@ Host-testable C89 code, built and tested on Linux:
 
 ## Classic Mac layer (`classic/`)
 
-Reserved. Will bridge the portable core to the Classic Mac OS 9 USB stack.
-Nothing here may be implemented until the exact APIs are verified from Apple
-USB DDK/SDK documentation; see `docs/research.md`. Markers use the form:
+M1B: the interface class driver (`usb_driver.c`), the resident byte ring
+(`ring.c`), and the `USBMIDI9DispatchTable` ABI (`usbmidi9_dispatch.h`)
+are implemented and compile-checked on Linux against stub headers
+(`make check-classic`); the real build happens in CodeWarrior on the
+Power Mac G4. Implemented against APIs verified from Apple USB
+DDK/SDK documentation (see `docs/research.md`); markers of the form
 
 ```c
 /* TODO(classic-usb-api): ... */
 ```
+
+remain for anything not yet verified.
 
 ## Service boundary
 
@@ -74,5 +79,9 @@ embedded in the portable transport.
 
 ## Probe (`probe/`)
 
-Reserved diagnostic utility for the Power Mac G4: device/descriptor
-inspection and live USB-MIDI traffic display.
+M1B source: diagnostic console utility for the Power Mac G4 — locates the
+USBMIDI9 dispatch table, displays attached interface information, and
+prints live received bytes in hex (see `probe/README.md`). Built on the G4
+(CodeWarrior console app); compile-checked on Linux via `make
+check-classic`. Descriptor inspection and decoded-MIDI display are planned
+later (post-M1B).

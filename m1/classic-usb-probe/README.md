@@ -5,16 +5,27 @@ This directory is the workspace for M1 development.
 
 ## Status
 
-**M1A complete (research + design, no driver code yet).** The verified
-Classic Mac OS USB driver model, the proposed M1 state machine, matching
-descriptor, bulk-read and hot-unplug lifecycles, the Probe communication
-mechanism, and CodeWarrior requirements are documented with citations in
-`docs/classic-usb-driver.md`.
+**M1A complete** (research + design, verified against the authentic USB
+DDK 1.4.1 kit; see `docs/classic-usb-driver.md`).
 
-## M1B (next gate, NOT started)
+**M1B source gate complete, hardware gate NOT done.** The interface class
+driver and the Probe are implemented as source:
 
-Build the interface class driver and the USBMIDI9 Probe such that, on the
-Power Mac G4:
+* `classic/usb_driver.{h,c}` — generic interface driver (class 0x01,
+  subclass 0x03, no VID/PID), per-interface instances, refcon state
+  machine (configure -> find bulk IN -> MaxPacketSize -> resident
+  buffers -> async read loop), removal handling, exports
+  `TheUSBDriverDescription`, `TheClassDriverPluginDispatchTable`,
+  `USBMIDI9DispatchTable`.
+* `classic/ring.{h,c}` — fixed resident byte ring (host prop-tested).
+* `classic/usbmidi9_dispatch.h` — the versioned dispatch ABI.
+* `probe/probe.c` — Mac OS 9 console probe: locates the dispatch table,
+  displays interface info, polls/dequeues received bytes, prints hex.
+* `codewarrior/USBMIDI9.exp` — linker export list.
+* Host gates: `make test`, `make test-sanitize`, `make check-classic`
+  (compile-check of the Classic sources against stub headers).
+
+The M1B goal remains:
 
 ```text
 Keystation 49e
@@ -28,19 +39,23 @@ Keystation 49e
 
 Example eventual observation: `09 90 3C 57`. No OMS is required for M1.
 
-## Hard prerequisites for M1B
+## M1B remaining work — hardware gate (NOT done)
 
-1. Obtain the **USB DDK 1.4.2 media** (headers: USB.h, USBClassDriver.h,
-   USBDriver.h; USBServicesLib import library; sample class drivers; DDK
-   ReadMe) — local research material, NOT committed to the repository.
-2. Verify against the real USB.h: `kClassDriverPluginVersion`,
-   `kInitialUSBDriverDescriptor`, `kTheUSBDriverDescriptionSignature`,
-   USBPB constants, error codes, and the notification-proc signature for
-   the USB software version on the target G4.
-3. Confirm the USB software version on the target Power Mac G4 and any
-   USB 1.4.2-specific differences (Rev 26 documents up to 1.4).
-4. Set up CodeWarrior on the G4 (shared-library project, 'ndrv'/'usbd'
-   output, export list).
+Source alone does not complete M1B. Final acceptance (definition of done
+item 11) requires, on the Power Mac G4:
+
+1. Build the driver with CodeWarrior (shared library, 'ndrv'/'usbd',
+   exports from `codewarrior/USBMIDI9.exp`, link USBServicesLib) and
+   install it in the Extensions folder.
+2. Build the Probe as a CodeWarrior console app (SIOUX) linking
+   InterfaceLib + USBManagerLib.
+3. Boot Mac OS 9 with the driver installed; attach the Keystation 49e.
+4. Verify the driver loads for the MIDIStreaming interface and the Probe
+   prints real received bytes in hex (e.g. `09 90 3C 57`).
+5. Verify hot unplug/replug: no crash, driver finalizes, replug restores
+   data flow.
+
+Full checklist: `docs/classic-usb-driver.md` §9.5.
 
 ## Anti-hallucination rules in force
 
@@ -49,4 +64,5 @@ Example eventual observation: `09 90 3C 57`. No OMS is required for M1.
 - No invented OMS/FreeMIDI APIs. No hardcoded Keystation VID/PID in the
   driver (generic class 0x01/subclass 0x03 interface match only).
 - Every API used must trace to a primary source (see
-  `docs/classic-usb-driver.md` source table).
+  `docs/classic-usb-driver.md` source table; the M1B code was written
+  against patterns re-verified from the actual DDK 1.4.1 kit).

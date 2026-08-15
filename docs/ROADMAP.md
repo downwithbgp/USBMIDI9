@@ -1,6 +1,7 @@
 # Roadmap
 
-Current status: **M0 in progress**.
+Current status: **M1B source gate complete** (driver + probe source,
+host compile-checked; hardware validation pending on the Power Mac G4).
 
 ## M0 — Repository and portable core
 
@@ -17,6 +18,14 @@ Current status: **M0 in progress**.
 * open the MIDIStreaming interface
 * read endpoint `0x81`
 * display raw USB-MIDI traffic
+
+**M1A complete** (research/design gate; `docs/classic-usb-driver.md`).
+**M1B source complete** (interface class driver + probe source,
+`classic/`, `probe/`, `codewarrior/USBMIDI9.exp`; host-compile-checked via
+`make check-classic`). **M1B hardware gate NOT done** — acceptance
+requires building on real CodeWarrior, booting Mac OS 9, attaching a real
+Keystation, and receiving real USB bytes (`docs/classic-usb-driver.md`
+§9.5 checklist).
 
 ## M2 — Generic USB-MIDI transport
 

@@ -1,6 +1,7 @@
 # CI for the portable USBMIDI9 core: build and test with GCC and Clang.
-# Target-specific layers (classic/, oms/, freemidi/, probe/) are not built
-# on Linux by design.
+# The Classic Mac OS layers (classic/, probe/) are compile-checked on
+# Linux against minimal stub headers (make check-classic); the real
+# driver/probe build happens in CodeWarrior on the Power Mac G4.
 
 name: CI
 
@@ -22,3 +23,5 @@ jobs:
       - name: Sanitizer run (ASan + UBSan)
         if: matrix.cc == 'gcc'
         run: make test-sanitize CC=${{ matrix.cc }}
+      - name: Classic sources compile check (stub headers)
+        run: make check-classic CC=${{ matrix.cc }}
