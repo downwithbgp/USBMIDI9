@@ -1,0 +1,47 @@
+# Keystation 49e — observed USB data (text fixture)
+#
+# This file records the empirically observed data for the first validation
+# device (Evolution eKeys-49 / Keystation 49e, VID:PID 0a4d:0090).
+#
+# NOTE: this is NOT a captured `lsusb -v` dump. It is a text record of the
+# initial hardware survey (see docs/hardware.md). Fields marked
+# "(not observed)" were not available and must not be treated as measured.
+# fixtures/keystation-49e.bin is reserved for a real binary descriptor
+# capture, which is not available yet.
+
+Device:
+  VID:PID                0a4d:0090
+  Vendor                 Evolution Electronics Ltd.
+  Product                eKeys-49 USB MIDI Keyboard / Keystation 49e
+  USB spec               1.00
+  Speed                  Full Speed
+
+Interface 0:
+  Class                  Audio (0x01)
+  Subclass               AudioControl (0x01)
+  Endpoints              0
+
+Interface 1:
+  Class                  Audio (0x01)
+  Subclass               MIDIStreaming (0x03)
+  Endpoints              2
+
+Bulk IN endpoint:
+  address                0x81
+  max packet             64 bytes
+
+Bulk OUT endpoint:
+  address                0x02
+  max packet             64 bytes
+
+Jack topology (observed):
+  Embedded MIDI IN Jack   ID 1
+  External MIDI IN Jack   ID 2
+  Embedded MIDI OUT Jack  ID 3, source Jack 2
+  External MIDI OUT Jack  ID 4, source Jack 1
+  Endpoint 0x81  -> associated embedded jack 3
+  Endpoint 0x02  -> associated embedded jack 1
+
+Not observed (unknown):
+  bcdDevice, iManufacturer/iProduct string descriptors, configuration
+  attributes, bMaxPower, audio control details, exact raw descriptor bytes.

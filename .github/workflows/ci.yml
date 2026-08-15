@@ -1,0 +1,24 @@
+# CI for the portable USBMIDI9 core: build and test with GCC and Clang.
+# Target-specific layers (classic/, oms/, freemidi/, probe/) are not built
+# on Linux by design.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run tests
+        run: make test CC=${{ matrix.cc }}
+      - name: Sanitizer run (ASan + UBSan)
+        if: matrix.cc == 'gcc'
+        run: make test-sanitize CC=${{ matrix.cc }}
