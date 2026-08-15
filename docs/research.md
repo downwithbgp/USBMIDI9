@@ -6,18 +6,49 @@ with provenance recorded (see "Source standards" below).
 
 ## Classic Mac OS 9 USB
 
-- [ ] Exact Apple USB DDK/SDK release that targets Mac OS 9, and where it can
-      be obtained today (provenance to be recorded).
-- [ ] USB device/interface matching model: how a Classic driver/system
-      extension attaches to a device or interface.
-- [ ] USB bulk transfer API: opening pipes, read/write calls, max packet
-      handling.
-- [ ] Asynchronous completion mechanism: completion routines, I/O queues,
-      interrupt-time constraints.
-- [ ] Device insertion/removal notification mechanism.
-- [ ] System extension packaging/resource requirements (CFM, resource types,
-      etc.).
-- [ ] Memory/lifetime constraints for callbacks and buffers.
+Primary source obtained: **Apple, *Mac OS USB DDK API Reference*,
+Preliminary Working Draft, Revision 26, 12/23/99** (from Apple's own
+archive; local research copy outside the repository). Verified findings and
+citations live in `docs/classic-usb-driver.md`. Remaining open items:
+
+- [ ] Apple USB DDK media/headers (USB.h, USBClassDriver.h, USBDriver.h,
+      USBServicesLib import library, sample class drivers) — USB DDK 1.4.2
+      media not yet obtained; leads: Macintosh Garden / period Apple
+      developer CDs. Do not commit to the repository (proprietary).
+- [x] USB device/interface matching model — verified (Rev 26 Ch 4,
+      p. 54-59; generic interface matching for class 0x01/subclass 0x03 in
+      `docs/classic-usb-driver.md` §1.4, §5.1).
+- [x] USB bulk transfer API — verified (USBBulkRead/USBBulkWrite, USBPB,
+      Rev 26 Ch 5, p. 128-129).
+- [x] Asynchronous completion mechanism — verified (completion routines at
+      secondary interrupt or task level; USBPB residency; Rev 26 Ch 5,
+      p. 101-102).
+- [x] Device insertion/removal notification — verified
+      (notificationProc/kNotifyDriverBeingRemoved + USBInstallDeviceNotification,
+      Rev 26 Ch 4 p. 70-71, Ch 6 p. 185-187).
+- [ ] System extension packaging/resource requirements — partially verified
+      (CFM shared library, file type 'ndrv', creator 'usbd'; CodeWarrior
+      Mac OS Merge); exact DDK-era CodeWarrior version and extension
+      packaging details still need the DDK ReadMe.
+- [x] Memory/lifetime constraints for callbacks — verified (USBAllocMem;
+      USBPB must outlive the async call; finalize must have no pending
+      calls; Rev 26 Ch 4 p. 86, Ch 5 p. 101, 150).
+- [ ] USB software version on the target G4 (Mac OS 9.x) and any
+      USB 1.4.2-specific changes not covered by Rev 26 (which documents up
+      to 1.4; 1.3.5 current at 12/23/99).
+
+## Service boundary design
+
+- [x] Probe/driver communication mechanism for M1 — documented choice:
+      driver-exported versioned dispatch table located via
+      `USBGetNextDeviceByClass` + `FindSymbol`, hotplug via
+      `USBInstallDeviceNotification` (Rev 26 Ch 4 p. 73-74, 83-85;
+      Ch 6 p. 179, 185-187). See `docs/classic-usb-driver.md` §5.7.
+- [ ] Whether the mechanism must be a CFM shared library, a system
+      extension, or both — driver is a CFM 'ndrv'/'usbd' extension
+      (verified); the OMS/FreeMIDI compatibility-shim form is deferred to
+      M4/M6.
+- [ ] OMS/FreeMIDI shim design — deferred (no OMS API design in M1A).
 
 ## OMS
 
@@ -34,16 +65,6 @@ with provenance recorded (see "Source standards" below).
 - [ ] FreeMIDI driver discovery/loading mechanism.
 - [ ] FreeMIDI MIDI receive/send and timing semantics.
 - [ ] FreeMIDI SDK/header redistribution terms.
-
-## Service boundary design
-
-- [ ] Best IPC/service mechanism between the USBMIDI9 extension and MIDI-
-      system adapters: Component Manager, driver control/status calls,
-      Gestalt mechanism, shared service, callback table, or another design.
-      Do not choose a mechanism merely because it resembles a modern Unix or
-      macOS API.
-- [ ] Whether the mechanism must be a CFM shared library, a system extension,
-      or both.
 
 ## Period drivers
 
