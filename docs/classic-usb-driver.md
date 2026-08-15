@@ -23,9 +23,16 @@ citations, per the source-discipline rules.
   [Ch 4, "Mac OS USB Driver Overview", p. 53]
 * The USB Manager discovers drivers by scanning files of type `'ndrv'` /
   creator `'usbd'`, searching every code fragment for the exported symbol
-  `USBDriverDescription`, and checking that the first four bytes match the
-  signature constant `kUSBDriverDescriptionSignature`.
+  `TheUSBDriverDescription`, and checking that the first four bytes match
+  the signature constant `kTheUSBDriverDescriptionSignature` (`'usbd'`).
   [Ch 4, p. 53]
+  *M1A.1 note:* Rev 26's prose names the exports `USBDriverDescription` /
+  `USBClassDriverPluginDispatchTable`, but the authentic DDK 1.4.1 export
+  list (`Interfaces/USBClassDriver.exp`) and every sample source export
+  **`TheUSBDriverDescription`** and **`TheClassDriverPluginDispatchTable`**
+  — those are the symbols to export. The signature constant in USB.h 1.4.1
+  is `kTheUSBDriverDescriptionSignature` (the docs previously wrote
+  `kUSBDriverDescriptionSignature`; the value is the same, `'usbd'`).
 * Version 1.0–1.1 USB software: one code fragment per driver file.
   Beginning with version 1.2, multiple driver CFMs per file are supported
   (built as separate shared libraries merged with CodeWarrior's "Mac OS
@@ -42,17 +49,21 @@ citations, per the source-discipline rules.
 A class driver must export exactly two symbols for the USB software to load
 it, plus any driver-specific exports for client (shim/probe) communication:
 
-1. **`USBDriverDescription`** — identifies the driver to the USB Manager
+1. **`TheUSBDriverDescription`** — identifies the driver to the USB Manager
    and describes what it matches. [Ch 4, "USBDriverDescription Structure", p. 60]
-2. **`USBClassDriverPluginDispatchTable`** — the driver entry points.
+2. **`TheClassDriverPluginDispatchTable`** — the driver entry points.
    [Ch 4, "USBClassDriverPlugInDispatchTable Structure", p. 65]
 3. *Optional:* additional exports for communication with a shim or other
    service — "Typically, class drivers may require additional exports to
    facilitate communication with a shim of other Mac OS service."
    [Ch 4, p. 65; Ch 4, "Communicating With Client Processes", p. 72-75]
+   The DDK's HID modules do exactly this: `USBHIDModule.exp` adds
+   `TheHIDModuleDispatchTable`; `UniversalHIDModule.exp` adds
+   `TheUHIDModuleDispatchTable`. [DDK 1.4.1 Interfaces/]
 
-Documented structure (Rev 26, p. 65; the document itself uses both
-"PlugIn" and "Plugin" spellings — noted as a draft inconsistency):
+Structure verified against the authentic header (USB.h 1.4.1; the document
+itself uses both "PlugIn" and "Plugin" spellings — noted as a draft
+inconsistency):
 
 ```c
 struct USBClassDriverPluginDispatchTable {
@@ -66,11 +77,27 @@ struct USBClassDriverPluginDispatchTable {
 ```
 
 * `pluginVersion` must be `kClassDriverPluginVersion`, defined in the
-  header `USB.h`; the USB Manager uses it to distinguish future versions of
-  the table. [Ch 4, p. 65]
+  header `USB.h`; **verified value 0x00001100** (USB.h 1.4.1). The USB
+  Manager uses it to distinguish future versions of the table.
+  [Ch 4, p. 65]
+* Verified proc-pointer signatures (USB.h 1.4.1):
+  * `USBDValidateHWProcPtr (USBDeviceRef device, USBDeviceDescriptorPtr pDesc)`
+  * `USBDInitializeDeviceProcPtr (USBDeviceRef device, USBDeviceDescriptorPtr pDesc, UInt32 busPowerAvailable)`
+  * `USBDInitializeInterfaceProcPtr (UInt32 interfaceNum, USBInterfaceDescriptorPtr pInterface, USBDeviceDescriptorPtr pDevice, USBInterfaceRef interfaceRef)`
+  * `USBDFinalizeProcPtr (USBDeviceRef device, USBDeviceDescriptorPtr pDesc)`
+  * `USBDDriverNotifyProcPtr (USBDriverNotification notification, void *pointer, UInt32 refcon)`
+    (three-argument form; the header comments "Added refcon for 1.1 version
+    of dispatch table". Note the type name is **`USBDDriverNotifyProcPtr`** —
+    no `USBDNotificationProcPtr` exists in USB.h.)
 * For **device** loading, `validateHWProc`, `initializeDeviceProc` and
   `finalizeProc` are required; nil ⇒ `kUSBBadDispatchTable` and load fails.
-  [Ch 4, p. 65-66]
+  [Ch 4, p. 65-66] *M1A.1 note:* the DDK 1.4.1 shipping HID modules
+  (KeyboardModule, MouseModule, UniversalModule) ship `validateHWProc = 0`
+  and still load on 1.4.1 software — the strict Rev 26 reading does not
+  obviously match the 1.4.1 implementation. For USBMIDI9 (interface
+  driver) this is moot: only `initializeInterfaceProc` + `finalizeProc`
+  are required, and we will still provide a `validateHWProc` stub
+  returning `kUSBNoErr` (harmless, and matches the documented rule).
 * For **interface** loading, `initializeInterfaceProc` and `finalizeProc`
   are required; nil ⇒ `kUSBBadDispatchTable` and interface load fails.
   [Ch 4, p. 66]
@@ -114,17 +141,22 @@ struct USBDriverType {
                                        class drivers since USB software 1.2 */
 };
 
-/* usbDriverLoadingOptions bits (Rev 26, p. 64): */
+/* usbDriverLoadingOptions bits (Rev 26, p. 64; values verified in USB.h 1.4.1): */
 /* kUSBDoNotMatchGenericDevice = 0x00000001 */
 /* kUSBDoNotMatchInterface     = 0x00000002 */
 /* kUSBProtocolMustMatch       = 0x00000004 */
+/* kUSBInterfaceMatchOnly      = 0x00000008 — defined in USB.h 1.4.1 */
 ```
 
 Doc-internal inconsistencies recorded: the sample on p. 64 spells the first
 flag `kUSBDoNotMatchGeneric` and its comments mix HID class values; the
-matching figures (4-1/4-2) reference an "InterfaceMatchOnly" flag that is
-not defined in the loading-options list. The p. 64 bit definitions are
-treated as authoritative here.
+matching figures (4-1/4-2) reference an "InterfaceMatchOnly" flag. **M1A.1
+resolution:** the authentic header defines `kUSBDoNotMatchGenericDevice`,
+`kUSBDoNotMatchInterface`, `kUSBProtocolMustMatch` (as in the docs' list)
+**and** `kUSBInterfaceMatchOnly = 0x00000008` ("Only load this driver as an
+interface driver") — so the figure references are valid; the p. 64 list was
+simply incomplete. (Rev 26's Appendix A also uses the short name
+`kUSBDoNotMatchGeneric` in prose — header name is authoritative.)
 
 ### 1.3 Verified driver lifecycle
 
@@ -296,11 +328,31 @@ Rules for a **generic class driver** (our case — USB-MIDI):
   the version number: `gestaltUSBAttr` (`'usb '`; bit 0 `gestaltUSBPresent`,
   bit 1 `gestaltUSBHasIsoch`), `gestaltUSBVersion` (`'usbv'`, MMmmRRss).
   [Ch 3, "USB Software Presence and Version Attributes", p. 45; Appendix A, p. 223]
-* **Unresolved:** Rev 26 (12/23/99) does not cover USB software **1.4.2**,
-  the last Mac OS 9-era release (Mac OS 9.1 era). Anything specific to
-  1.4.2 (and the USB DDK 1.4.2 headers/ReadMe) must be verified from the
-  USB DDK 1.4.2 media before M1B implementation. Marked unresolved in
-  Section 7.
+* **1.4.2 (M1A.1-verified):** USB 1.4.2 fixes one issue — Apple Studio
+  Display hubs unusable after wake-from-sleep — changes **no API**,
+  reports `'usbv'` = `0x01428000`, and ships only inside the Mac OS 9
+  Update (Mac OS 9.0.4); the USB Device Extension file remains 1.4.1 and
+  there is no standalone installer. Consequently there is **no separate
+  "USB DDK 1.4.2"**; the DDK 1.4.1 kit (USB software 1.4.1f4) is the
+  authentic 1.4.x header set. (Both cited sources contain the same
+  "USB 1.4.2" section — the kit's change history pre-documents the
+  upcoming release.) [DDK 1.4.1 kit, "Mac OS USB Change History" §USB
+  1.4.2; Apple "Mac OS USB 1.5.1f1 Change History",
+  developer.apple.com/hardware/usb/download_prerelease_readme.html,
+  Wayback capture 2001-06-24]
+* **Verified header version constants (USB.h 1.4.1):**
+  `kUSBCurrentPBVersion = 0x0100` (v1.00), `kUSBIsocPBVersion = 0x0109`
+  (v1.10), `kUSBCurrentHubPB = kUSBIsocPBVersion`; the `OLDUSBNAMES` macro
+  (default 0) maps `usbBMRequestType`/`usbBRequest`/`usbWValue`/`usbWIndex`
+  to `usb.cntl.*`. Note that **USB.h 1.4.1 declares types and constants
+  only** — the USL function prototypes (USBFindNextPipe etc.) are not in
+  it; they lived in the CodeWarrior-era Universal Headers' USB.h (Apple's
+  1.4.6 change notes, as republished in the "Mac OS USB 1.5.1f1 Change
+  History" page [Wayback 2001-06-24], record a "USB.h file" change,
+  "Removed support for OLDCLASSNAMES"). Function signatures are verified from Rev 26 (the API
+  reference for this software) and DDK sample call sites (see §8); the
+  exact header spelling must be confirmed against the header actually used
+  for the M1B build.
 
 ---
 
@@ -309,14 +361,19 @@ Rules for a **generic class driver** (our case — USB-MIDI):
 1. **Binary/module format:** CFM shared library, file type `'ndrv'`,
    creator `'usbd'` (single CFM per file on USB ≤1.1; merged multi-CFM
    files on 1.2+). [Ch 4, p. 53; App A, p. 227]
-2. **Exported symbols:** `USBDriverDescription` and
-   `USBClassDriverPluginDispatchTable` (plus optional driver-specific
-   exports for shims/clients). [Ch 4, p. 60, 65]
-3. **Dispatch table structure:** as reproduced in 1.2 (Rev 26, p. 65);
-   `pluginVersion = kClassDriverPluginVersion`; interface loading requires
+2. **Exported symbols:** `TheUSBDriverDescription` and
+   `TheClassDriverPluginDispatchTable` (plus optional driver-specific
+   exports for shims/clients). [Ch 4, p. 60, 65; USBClassDriver.exp]
+3. **Dispatch table structure:** as reproduced in 1.2 (Rev 26, p. 65;
+   struct verified in USB.h 1.4.1); `pluginVersion = kClassDriverPluginVersion`
+   (**verified: 0x00001100**); interface loading requires
    `initializeInterfaceProc` + `finalizeProc` non-nil. The notification
-   proc signature (with/without refcon) is selected by the plugin version
-   constant in the USB.h you build against. [Ch 4, p. 65-66; App A, p. 226]
+   proc is `USBDDriverNotifyProcPtr`, three-argument form
+   `(USBDriverNotification, void *pointer, UInt32 refcon)` — the header
+   comment says the refcon was "added for 1.1 version of dispatch table";
+   build against a USB.h whose `kClassDriverPluginVersion` matches the
+   three-argument proc we implement (the DDK 1.4.1 header does).
+   [Ch 4, p. 65-66; App A, p. 226; USB.h 1.4.1]
 4. **USBDriverDescription fields for a generic interface driver:** see
    Section 4.1 (interfaceClass 0x01, interfaceSubClass 0x03, protocol 0,
    generic bits clear). [Ch 4, p. 60-64]
@@ -360,16 +417,19 @@ Rules for a **generic class driver** (our case — USB-MIDI):
 12. **Memory residency:** the USBPB must remain allocated until the
     completion routine runs (or an immediate error is returned); it cannot
     be reused before then. Same for the data buffer (USBAllocMem memory is
-    managed with the device; buffers should be MaxPacketSize-aligned
-    multiples). [Ch 5, p. 101, 128; App A, p. 230]
+    managed with the device). MaxPacketSize alignment of the buffer and
+    multiples of MaxPacketSize for `usbReqCount` are a **performance**
+    consideration, not a functional requirement — see the M1A.1 correction
+    in §5.5. [Ch 5, p. 101, 128; App A, p. 230]
 13. **Completion context:** secondary interrupt level or system task
     level, not guaranteed; check `CurrentExecutionLevel`; only USL calls
     are guaranteed safe; Toolbox calls generally are not (class driver
     operates at secondary interrupt time). [Ch 5, p. 102; Ch 4, p. 86]
 14. **Hot unplug with an outstanding bulk read:** pending calls complete
-    with `kUSBNotRespondingError` or are aborted with `kUSBAbortedError`;
-    never retry an unexpected kUSBAbortedError; order of errors vs
-    notification is not guaranteed. [Ch 4, "Handling Hot Unplugging", p. 71]
+    with `kUSBNotRespondingErr` (−6911; Rev 26 prose: "kUSBNotRespondingError")
+    or are aborted with `kUSBAbortedError` (−6982); never retry an
+    unexpected kUSBAbortedError; order of errors vs notification is not
+    guaranteed. [Ch 4, "Handling Hot Unplugging", p. 71]
 15. **Removal notifications to the driver:** `notificationProc` with
     `kNotifyDriverBeingRemoved` (0x0B), at system task time, before
     finalize; also sleep notifications on PowerBooks (1.2+).
@@ -387,27 +447,42 @@ Rules for a **generic class driver** (our case — USB-MIDI):
     into the driver deliver decoded packets; SetZone(SystemZone()) around
     the lookup. [Ch 4, p. 73-74, 83-85; Ch 6, p. 179, 185-187]
 18. **Exported dispatch table + FindSym vs alternatives:** the exported
-    dispatch table + FindSym is the mechanism Apple documents for
-    class-driver ↔ shim communication (HID precedent:
-    `TheUSBHIDModuleDispatchTable`/`TheHIDDeviceDispatchTable`); Apple
+    dispatch table + FindSym (the CFM API is `FindSymbol`; Rev 26 prose
+    uses "FindSym") is the mechanism Apple documents for
+    class-driver ↔ shim communication (HID precedent — *M1A.1:* HID.h
+    documents the HID device driver's export `TheHIDDeviceDispatchTable`,
+    and the DDK `.exp` files add the HID *module* tables
+    `TheHIDModuleDispatchTable`/`TheUHIDModuleDispatchTable`); Apple
     explicitly notes there is **no official API** for client↔driver
     communication, and describes shim designs for other models (DRVR,
     CTB, vdig, DLPI). For a diagnostic probe, the dispatch-table approach
     is period-correct and sufficient; a DRVR/NDRV shim is only needed
     later for OMS/FreeMIDI integration. [Ch 4, p. 72-75, 81-85]
-19. **CodeWarrior build/link settings:** shared-library ('shlb') targets
-    merged via CodeWarrior "Mac OS Merge" into an `'ndrv'`/`'usbd'` file
-    (merge feature documented for CW IDE 2.0+; exact DDK-era version
-    unresolved); export the required symbols (USB.h-style export list /
-    .exp); weak-link `USBServicesLib` if calling isochronous functions
-    (hard links prevent driver load on systems without those calls);
-    include USB.h (1.3+). [App A, p. 226-227]
-20. **Headers/libraries on the G4 build system:** the USB DDK headers
-    (USB.h at minimum; the DDK's USBClassDriver.h/USBDriver.h equivalents
-    per the DDK media) and the USB Services Library import library
-    (USBServicesLib). Exact file inventory: **unresolved** — requires the
-    USB DDK 1.4.2 media; the DDK ReadMe documents setup.
-    [Ch 5, p. 89; App A, p. 228]
+19. **CodeWarrior build/link settings (M1A.1-verified):** the DDK Readme
+    states the supplied project files were created with **CodeWarrior Pro 1,
+    IDE 2.0** (compatible with IDE 2.1, 3.0+), and require **Universal
+    Interfaces and Libraries 3.3**; USB.h (and HID.h) from the DDK are
+    copied into the Universal Headers folder. The MPW makefiles
+    (USBKeypad.make) show the PPC link line: `-t 'ndrv' -c 'usbd'`,
+    `-xm sharedlibrary -share context`, `-@export
+    {USBInterfacesInternal}USBClassDriver.exp`, linking `USBServicesLib`
+    and `InterfaceLib`; multiple driver fragments are merged into one
+    `'ndrv'` file with `mergefragment` (MPW) or CodeWarrior's "Mac OS
+    Merge" panel (the `.proj` files include a MacOS Merge Panel); built
+    drivers land in `:Extensions-MCWBuilt:`. Export list contents are
+    `TheUSBDriverDescription` + `TheClassDriverPluginDispatchTable`
+    (+ driver-specific tables). [App A, p. 226-227; DDK 1.4.1 Readme;
+    USBKeypad.make; USBClassDriver.exp]
+20. **Headers/libraries on the G4 build system (M1A.1-resolved):** the DDK
+    1.4.1 kit provides `Interfaces/USB.h` (+ HID.h, PowerClass.h,
+    SerialShim.h, SIOW.h, UniversalHIDModule.h and the .exp export lists)
+    and `Libraries/USBServicesLib` (+ USBManagerLib, USBPowerClassLib,
+    CursorDevicesLib) — the authentic 1.4.x-era headers/import libraries.
+    Note the DDK 1.4.1 USB.h is types/constants only; USL prototypes come
+    from the CodeWarrior-era Universal Headers' USB.h (see §2). The Readme
+    documents setup (copy USB.h/HID.h into Universal Headers; the 'usbx'
+    resource ID 1984 is required for the *development* USB Support file,
+    not for driver builds). [Ch 5, p. 89; App A, p. 228; DDK 1.4.1 Readme]
 
 ---
 
@@ -443,9 +518,14 @@ p. 72-75) **directly supports this arrangement**:
 * The class driver **may export a dispatch table**; the shim obtains its
   address with `FindSym` (via the CFragConnectionID from
   `USBGetNextDeviceByClass`) and calls through it. The HID class driver is
-  the worked precedent (`TheHIDDeviceDispatchTable`, versioned with
-  dispatchTableCurrentVersion/dispatchTableOldestVersion, vendorID field).
-  [Ch 4, p. 73-74, 76; p. 83-85]
+  the worked precedent: HID.h documents the export
+  `TheHIDDeviceDispatchTable` and the versioned struct
+  (`dispatchTableCurrentVersion` = `kHIDCurrentDispatchTableVersion` (2),
+  `dispatchTableOldestVersion` = `kHIDOldestCompatableDispatchTableVersion` (1),
+  `vendorID`). *M1A.1-verified* in the DDK 1.4.1 HID.h; the HID module
+  tables (`TheHIDModuleDispatchTable`/`TheUHIDModuleDispatchTable`) are the
+  `.exp`-verified module-level equivalents.
+  [Ch 4, p. 73-74, 76; p. 83-85; HID.h; DDK 1.4.1 .exp files]
 * An application may do what a shim does, but must handle hot unplug and
   multiple devices. [Ch 4, p. 74]
 * Shims are found by creator `'usbs'`; since USB 1.4 a shim can also be a
@@ -466,12 +546,12 @@ FindSym/USBGetNextDeviceByClass mechanism. OMS API design is deferred.
 ### 5.1 Proposed matching descriptor (USBDriverDescription)
 
 ```c
-/* Design (not yet implemented; constant values from USB.h to be verified
-   against the actual DDK header). */
+/* Design (not yet implemented; constant values verified against the
+   authentic USB.h from the DDK 1.4.1 kit, see §8.1). */
 USBDriverDescription gUSBDriverDescription = {
     /* Signature */
     kTheUSBDriverDescriptionSignature,  /* identifies a USB class driver */
-    kInitialUSBDriverDescriptor,        /* structure version */
+    kInitialUSBDriverDescriptor,        /* structure version (0) */
     /* Device Info — deliberately empty for a generic driver */
     0, 0, 0, 0,                         /* vendor, product, release, protocol */
     /* Interface Info — generic USB-MIDI match */
@@ -483,7 +563,9 @@ USBDriverDescription gUSBDriverDescription = {
     /* Driver Info */
     "\pUSBMIDI9",                       /* nameInfoStr */
     0, 0,                               /* device class/subclass: n/a */
-    /* usbDriverVersion (NumVersion) — layout per USB.h, value TBD at M1B */
+    /* usbDriverVersion (NumVersion): 4 × UInt8 fields, initialized like
+       the DDK samples — majorRev, minorAndBugRev, stage, nonRelRev —
+       e.g. {1, 0, kReleaseStageFinal, 0}; value fixed at M1B */
     /* Loading Options */
     0                                   /* generic matching allowed,
                                            interface matching allowed,
@@ -503,10 +585,14 @@ next-best driver. [Ch 4, p. 58]
 
 ### 5.2 Required exports
 
-* `USBDriverDescription` (above)
-* `USBClassDriverPluginDispatchTable` with:
-  * `validateHWProc` — required non-nil for the table; for interface
-    loading it is never called; provide a stub returning kUSBNoErr.
+* `TheUSBDriverDescription` (above; the exported symbol name is the
+  `The`-prefixed form used by the DDK `.exp` files and all samples — see
+  §1.1)
+* `TheClassDriverPluginDispatchTable` with:
+  * `validateHWProc` — Rev 26 requires it non-nil for the table; for
+    interface loading it is never called; provide a stub returning
+    kUSBNoErr (note: the DDK 1.4.1 shipping HID modules ship 0 here — see
+    §1.2).
   * `initializeDeviceProc` — required non-nil for the table; we are an
     interface-only driver; provide a stub returning an error (documented
     behavior: device load of USBMIDI9 is not supported).
@@ -515,16 +601,17 @@ next-best driver. [Ch 4, p. 58]
   * `notificationProc` — hot-unplug / sleep handling (Section 5.6).
 * `USBMIDI9DispatchTable` (proposed name; final name to be fixed at M1B)
   — the driver-specific export for Probe/shim communication, modeled on
-  the HID dispatch-table precedent (versioned). [Ch 4, p. 76]
+  the HID dispatch-table precedent (`TheHIDModuleDispatchTable` /
+  `TheUHIDModuleDispatchTable` in the DDK `.exp` files). [Ch 4, p. 76]
 
 ### 5.3 Proposed M1 state machine
 
 ```text
 unloaded
    |
-   | USB Manager scans 'ndrv'/'usbd' files, matches USBDriverDescription
+   | USB Manager scans 'ndrv'/'usbd' files, matches TheUSBDriverDescription
    | (interface class 0x01, subclass 0x03), loads CFM fragment, finds
-   | USBClassDriverPluginDispatchTable
+   | TheClassDriverPluginDispatchTable
    v
 interface matched
    |
@@ -536,8 +623,9 @@ initialize
    |
    | 1. validate pInterface with portable core (MS header, jacks, bulk
    |    endpoints, max packet sizes) -- decline with error if not USB-MIDI
-   | 2. record interfaceRef; USBAllocMem for buffers (64-byte aligned,
-   |    multiple of 64) [Ch 5, p. 150; App A, p. 230]
+   | 2. record interfaceRef; USBAllocMem for buffers (64-byte aligned;
+   |    alignment is a performance choice, see §5.5)
+   |    [Ch 5, p. 150; App A, p. 230]
    | 3. start async state machine; return kUSBNoErr [Ch 4, p. 69]
    v
 find/open pipes                        (async steps, completion-driven)
@@ -559,7 +647,7 @@ read pending
    v
 completion
    |
-   | check usbStatus (kUSBNoErr | kUSBNotRespondingError |
+   | check usbStatus (kUSBNoErr | kUSBNotRespondingErr |
    |                  kUSBAbortedError | ...) and usbActCount
    | on success: pass buffer to portable um9_packet_decode;
    | deliver 4-byte Event Packets to the Probe via the dispatch table
@@ -584,7 +672,8 @@ struct usbmidi9_instance {
     USBPipeRef           bulkInPipe;      /* endpoint 0x81 */
     USBPipeRef           bulkOutPipe;     /* endpoint 0x02 */
     UInt16               maxPacketSize;   /* 64, from USBFindNextPipe */
-    void                *readBuffer;      /* USBAllocMem'd, 64-aligned */
+    void                *readBuffer;      /* USBAllocMem'd, 64-aligned
+                                             (alignment = performance, §5.5) */
     USBPB                readPB;          /* resident while read pending */
     volatile UInt32      readPending;     /* completion/refcon state */
     UInt32               refcon;          /* state-machine selector */
@@ -603,18 +692,37 @@ USBPB/buffer allocated up front so they outlive the asynchronous calls.
 1. `USBFindNextPipe` with `kUSBIn`/`kUSBBulk` returns the bulk-IN pipe ref
    (max packet size in `usb.cntl.WValue`). [Ch 5, p. 115]
 2. `USBBulkRead` with `usbReqCount = 64`, buffer aligned to 64;
-   `usbReqCount` must be a multiple of MaxPacketSize. [Ch 5, p. 128; App A, p. 230]
+   `usbCompletion` set, `usbFlags = 0`. [Ch 5, p. 128]
 3. A short packet or a full 64-byte packet terminates the request; check
    `usbActCount`; `usbStatus` holds the completion status. [Ch 5, p. 128]
 4. Decode the buffer as 1..N 4-byte Event Packets with the portable core
    (`um9_packet_decode`), deliver via the probe dispatch entry, resubmit.
 5. On error, never retry an unexpected `kUSBAbortedError`. [Ch 4, p. 71]
 
+**M1A.1 correction — MaxPacketSize alignment is a performance
+consideration, not a functional requirement.** Rev 26 itself says "in
+order to avoid the loss of data … usbBuffer and usbReqCount *should* be a
+multiple of the endpoint MaxPacketSize" and defers to the performance
+appendix: a misaligned buffer caps the transfer descriptor at 4K versus 8K
+for an aligned buffer; "for small transfers (less than 8K), this issue may
+not make a noticeable difference"; "the buffer size must be a multiple of
+MaxPacketSize for *maximum performance*". Functionally: a short packet
+terminates a bulk read regardless of alignment; a request that is not a
+multiple of MaxPacketSize risks overrunning the last packet
+(`kUSBOverRunErr`, no valid data in the buffer). The aligned 64-byte read
+(64-byte buffer, `usbReqCount = 64`) **remains the intended choice** for
+the Keystation M1 test: it is simple, matches the documented performance
+guidance, and guarantees any MIDI event packet (≤4 bytes) terminates the
+read immediately. [Ch 5, p. 128; App A, "Bulk Data Transfer Performance
+Issues", p. 230]
+
 ### 5.6 Hot-unplug lifecycle (verified sequence)
 
 1. Device unplugged → pending USL calls complete with
-   `kUSBNotRespondingError` or are aborted with `kUSBAbortedError`, in no
+   `kUSBNotRespondingErr` or are aborted with `kUSBAbortedError`, in no
    guaranteed order relative to the notification. [Ch 4, p. 71]
+   (*M1A.1:* the constant is `kUSBNotRespondingErr` (−6911); Rev 26 prose
+   spells it "kUSBNotRespondingError".)
 2. `notificationProc(kNotifyDriverBeingRemoved)` at system task time.
    [Ch 4, p. 70]
 3. While the Probe still holds the driver, return `kUSBDeviceBusy` to
@@ -629,6 +737,24 @@ USBPB/buffer allocated up front so they outlive the asynchronous calls.
 6. Return from finalize → fragment unloaded. No USB call may still be
    pending, or the system crashes when its completion later fires.
    [Ch 4, p. 70-71]
+
+**M1A.1 — the exact removal mechanics as implemented by Apple's shipping
+KeyboardModule (DDK 1.4.1 `Examples/KeyboardModule/`):** the driver keeps
+a `driverRemovalPending` flag and a `kCompletionPending` bit in
+`usbRefcon` for every in-flight transaction. On
+`kNotifyDriverBeingRemoved` it (a) sets `driverRemovalPending = true`,
+(b) for each pending transaction calls
+`USBAbortPipeByReference(pipeRef)` — if the abort itself errors it clears
+`kCompletionPending` ("don't expect the completion to be called either"),
+(c) nils the pipe ref and returns `kUSBDeviceBusy` so the USB software
+re-sends the notification. The completion routine refuses to resubmit I/O
+while `driverRemovalPending` is set, so the transaction count drains to
+zero; `finalizeProc` then returns `noErr` immediately. The same pattern
+appears in UniversalModule.c (`USBAbortPipeByReference(myUniversalPB.pipeRef)`)
+and USBKeypad. Note the data-toggle caveat: aborting leaves the endpoint
+toggle state uncertain (`USBAbortPipeByReference` docs, Rev 26 p. 137;
+PrinterClassDriver.c comments) — irrelevant for a driver that is being
+removed, relevant if an abort is used for error recovery.
 
 ### 5.7 Proposed Probe communication mechanism
 
@@ -651,45 +777,58 @@ USBPB/buffer allocated up front so they outlive the asynchronous calls.
   are M1B design work — the M1A gate fixes the mechanism, not the ABI.
 * Note: `USBGetNextDeviceByClass` appears with inconsistent prototypes in
   the two Chapter 4 listings (4 vs 5 arguments); the Chapter 6 reference
-  (5 arguments, with `CFragConnectionID *connID`) is authoritative.
+  (5 arguments, with `CFragConnectionID *connID`) is authoritative —
+  **M1A.1-verified** against the Rev 26 text:
+  `OSStatus USBGetNextDeviceByClass(USBDeviceRef *deviceRef,
+  CFragConnectionID *connID, UInt16 theClass, UInt16 theSubClass,
+  UInt16 theProtocol)`.
   [Ch 4, p. 83-84 vs Ch 6, p. 179]
 
 ### 5.8 CodeWarrior/build requirements known so far
 
 * Project type: CodeWarrior shared library ('shlb') target(s); merge via
   "Mac OS Merge" into a single file with type `'ndrv'`, creator `'usbd'`,
-  "Copy Code Fragments" checked (merge feature documented for CodeWarrior
-  IDE 2.0+; the DDK-era exact version is unresolved). [App A, p. 227]
-* Export list (.exp / linker exports): `USBDriverDescription`,
-  `USBClassDriverPluginDispatchTable`, `USBMIDI9DispatchTable`.
-  [Ch 4, p. 60-65]
+  "Copy Code Fragments" checked (DDK-era toolchain verified: CodeWarrior
+  Pro 1 / IDE 2.0, Universal Interfaces 3.3 — see §3 Q19). [App A, p. 227;
+  DDK 1.4.1 Readme]
+* Export list (.exp / linker exports): `TheUSBDriverDescription`,
+  `TheClassDriverPluginDispatchTable`, `USBMIDI9DispatchTable`.
+  [Ch 4, p. 60-65; USBClassDriver.exp]
 * Link against the USB Services Library (USBServicesLib); weak-link it if
   any isochronous calls are used, else the driver will not load on systems
   lacking them. [App A, p. 226]
 * Headers: USB.h (1.3 or later; the `kClassDriverPluginVersion` in the
-  header must match the 3-arg notification proc we implement).
-  [Ch 5, p. 106; App A, p. 226]
-* File placement: the built `'ndrv'`/`'usbd'` extension goes in the
-  Extensions folder (or System Folder for the driver search to find it);
-  exact packaging to be confirmed from the DDK ReadMe. [Ch 3, p. 47]
+  header must match the 3-arg notification proc we implement). Two-header
+  story per §3 Q20: the DDK 1.4.1 USB.h is types-only (prototypes come
+  from the CodeWarrior-era Universal Headers' USB.h).
+  [Ch 5, p. 106; App A, p. 226; §3 Q20]
+* File placement: built drivers go in the Extensions folder (DDK ReadMe
+  installation instructions; Rev 26 Ch 3 p. 47); the DDK's own project
+  files output drivers to `:Extensions-MCWBuilt:`.
 
 ---
 
 ## 6. Unresolved questions
 
-* **USB DDK 1.4.2 media and headers** (USB.h, USBClassDriver.h,
-  USBDriver.h, USBServicesLib import library, sample class drivers) — not
-  yet obtained; leads: Macintosh Garden / period Apple developer CDs.
-  Record provenance when obtained; do not commit to this MIT repository.
-* Exact **kClassDriverPluginVersion value** and the exact
-  **notification-proc signature** for the USB software version on the
-  target G4 — to be confirmed against the actual USB.h.
-* USB software version actually shipped on the target Power Mac G4
-  (Mac OS 9.x) and any **1.4.2-specific changes** not in Rev 26.
+* ~~USB DDK 1.4.2 media and headers~~ — **resolved by M1A.1:** no standalone
+  USB DDK 1.4.2 exists (Apple change histories; USB 1.4.2 ships only inside
+  the Mac OS 9 Update). The DDK 1.4.1 kit (ADC CD-ROM January 2001) is the
+  authentic 1.4.x header set; see `~/research/usbddk/PROVENANCE.md`.
+* Exact **USL function prototypes in header form** (e.g. `EXTERN_API`
+  declarations of USBFindNextPipe/USBBulkRead/USBAllocMem) — the DDK 1.4.1
+  USB.h declares types only; prototypes were in the CodeWarrior-era
+  Universal Headers' USB.h (Apple's 1.4.6 change notes, as republished in
+  the "Mac OS USB 1.5.1f1 Change History" page [Wayback 2001-06-24],
+  record a "USB.h file" change, "Removed support for OLDCLASSNAMES").
+  Signatures are verified from Rev 26 + sample call sites; the exact
+  header spelling must be confirmed against the header actually used for
+  the M1B build.
 * `USBConfigureInterface` set-interface behavior in later USB software
   (Rev 26 documents that it does not set the interface; later behavior
-  unverified).
-* Exact **CodeWarrior version** used by the DDK era (ReadMe).
+  unverified — requires a 1.4.6+ USB software test).
+* Exact **CodeWarrior version** used by the DDK era — **resolved:** the
+  DDK 1.4.1 Readme states CodeWarrior Pro 1 / IDE 2.0 (compatible with
+  IDE 2.1, 3.0+), with Universal Interfaces 3.3.
 * Whether **sleep notifications** must be handled for the target G4
   (desktop Macs do not receive them per Rev 26, p. 70).
 * `USBMIDI9DispatchTable` ABI and Probe UI design (M1B).
@@ -701,8 +840,11 @@ USBPB/buffer allocated up front so they outlive the asynchronous calls.
 
 | Source | Kind | Provenance | Used for |
 |---|---|---|---|
-| Apple Computer, *Mac OS USB DDK API Reference*, Preliminary Working Draft, Revision 26, 12/23/99, 252 pp. | Primary Apple doc | Downloaded from Apple's own archive: `developer.apple.com/library/archive/documentation/Hardware/DeviceManagers/usb/usb_ref/usb_api_ref_v26.pdf`; PDF metadata (Author "Apple Computer", FrameMaker 5.5, 1999-12-23) verified. Local copy (research only, NOT committed): `~/research/usbddk/usb_api_ref_v26.pdf` + `.txt` extraction. | All assertions above; citations `[Ch N, "Section", p. N]` |
-| Apple USB DDK headers (USB.h etc.) and sample class drivers | Primary Apple material | **Not yet obtained** (see Section 6) | Constant values (kClassDriverPluginVersion, kUSBCurrentPBVersion, kUSBNoErr, kUSBIn/kUSBOut/kUSBBulk, ...) to be verified at M1B |
+| Apple Computer, *Mac OS USB DDK API Reference*, Preliminary Working Draft, Revision 26, 12/23/99, 252 pp. | Primary Apple doc | Downloaded from Apple's own archive: `developer.apple.com/library/archive/documentation/Hardware/DeviceManagers/usb/usb_ref/usb_api_ref_v26.pdf`; PDF metadata (Author "Apple Computer", FrameMaker 5.5, 1999-12-23) verified. Local copy (research only, NOT committed): `~/research/usbddk/usb_api_ref_v26.pdf` + `.txt` extraction (SHA-256 `c2594edf…37668`). | All assertions above; citations `[Ch N, "Section", p. N]` |
+| Apple, **Mac OS USB DDK 1.4.1 installed kit** (Interfaces/USB.h, HID.h, .exp lists; Libraries/USBServicesLib; Documentation incl. DDK Readme + Change History; Examples; Extensions-AppleBuilt) | Primary Apple material | Apple ADC Developer CD-ROM January 2001, Internet Archive item `Apple_Developer_Connection_Developer_CD-ROM_January_2001`, ISO folder `Development Kits/Hardware/Mac OS USB DDK/Mac OS USB DDK 1.4.1/`; local copy (research only, NOT committed): `~/research/usbddk/adc-cd-jan2001/…`; per-file hashes in `~/research/usbddk/PROVENANCE.md`. | M1A.1 verification: exact declarations, constant values, export lists, sample patterns, CodeWarrior/UI requirements, 1.4.2 finding |
+| Apple, **USB DDK 1.4.6f12 / USB DDK 1.5.1f1 disk images** | Primary Apple material | ADC CD-ROM Jan 2001 (`USB_DDK_1.4.6f12.img`) and Macintosh Garden `USB_DDK_1.5.1f1.img_.sea_.hqx` (MD5 `53b45e75…bf422e`). Images are FileCrusher/tome-mastered; contents not extractable with standard tools. Local: `~/research/usbddk/` (NOT committed). | Cross-era reference only; contents covered by the 1.4.1 kit |
+| Apple, **MacErrors.h** (Universal Interfaces snapshot) | Primary Apple material | GitHub `msftguy/ssh-rd` @ `a5f3a79daeac5844edebf01916c9613563f1c390`, `_3rd/CF/MacErrors.h` ("QuickTime 7.3"-era UI header; USB error block unchanged since the DDK era). Local: `~/research/usbddk/media/MacErrors.h` (NOT committed). | USB error values (kUSBNoErr, kUSBAbortedError=−6982, kUSBDeviceBusy=−6977, kUSBNotRespondingErr=−6911, …) |
+| Apple USB DDK 1.4.2-specific media | — | **Does not exist**: Apple's change histories (DDK 1.4.1 kit "Mac OS USB Change History", which pre-documents the upcoming 1.4.2 release; Apple "Mac OS USB 1.5.1f1 Change History" page, Wayback capture 2001-06-24) confirm USB 1.4.2 shipped only inside the Mac OS 9 Update (9.0.4), 'usbv' 0x01428000, no API change, no standalone installer. | Resolution of the "USB DDK 1.4.2" open item |
 | Inside Macintosh: PowerPC System Software, Ch 3 (Code Fragment Manager) | Secondary Apple doc | Referenced by Rev 26 preface (p. 15); not yet obtained | CFM background (FindSymbol etc.) |
 | USB specification / USB-MIDI 1.0 class spec | Industry spec | usb.org; already used by the portable core | Descriptor/event-packet formats |
 
@@ -710,3 +852,135 @@ Discipline notes: no IOKit / IOUSBDeviceInterface / CoreMIDI / DriverKit
 material was used; those are Mac OS X APIs and are rejected for this
 target. No OMS/FreeMIDI API was designed here. No Keystation VID/PID
 appears anywhere in the design (the descriptor in 5.1 is fully generic).
+No Apple sample code is copied into this repository — patterns and
+provenance only (DDK license; "The USB Support and USB Device Extension
+files may not be distributed in any manner").
+
+---
+
+## 8. M1A.1 dependency-acquisition and consistency pass
+
+Sources and hashes: `~/research/usbddk/PROVENANCE.md` (outside the repo).
+Everything below was read from the authentic **Mac OS USB DDK 1.4.1 kit**
+(ADC Developer CD-ROM January 2001) or from **Rev 26** / **MacErrors.h**;
+no Apple source code is reproduced here.
+
+### 8.1 Verified constant values and declarations (USB.h 1.4.1)
+
+* `kTheUSBDriverDescriptionSignature = 'usbd'`; `kInitialUSBDriverDescriptor = 0`;
+  `kUSBDriverFileType = 'ndrv'`; `kUSBDriverRsrcType = 'usbd'`; `kUSBShimRsrcType = 'usbs'`.
+* `kClassDriverPluginVersion = 0x00001100`.
+* `kUSBCurrentPBVersion = 0x0100`; `kUSBIsocPBVersion = 0x0109`;
+  `kUSBCurrentHubPB = kUSBIsocPBVersion`; `kUSBNoCallBack = (USBCompletion)-1L`.
+* Direction/type enums: `kUSBOut=0, kUSBIn=1, kUSBNone=2, kUSBAnyDirn=3`;
+  `kUSBControl=0, kUSBIsoc=1, kUSBBulk=2, kUSBInterrupt=3, kUSBAnyType=0xFF`.
+* Loading options: `kUSBDoNotMatchGenericDevice=0x00000001`,
+  `kUSBDoNotMatchInterface=0x00000002`, `kUSBProtocolMustMatch=0x00000004`,
+  `kUSBInterfaceMatchOnly=0x00000008`.
+* Notifications: `kNotifyDriverBeingRemoved=0x0000000B`;
+  `kNotifyExpertTerminating=0x00000008`; sleep notifications
+  `kNotifySystemSleepRequest/Demand/WakeUp/Revoke = 1..4`.
+* Errors (MacErrors.h, UI snapshot — values stable across the DDK era):
+  `kUSBNoErr=0`, `kUSBPending=1`, `kUSBOverRunErr=-6908`,
+  `kUSBNotRespondingErr=-6911`, `kUSBBadDispatchTable=-6950`,
+  `kUSBDeviceDisconnected=-6972`, `kUSBDeviceBusy=-6977`,
+  `kUSBPipeStalledError=-6979`, `kUSBAbortedError=-6982`,
+  `kUSBInternalErr=-6999`.
+* `USBPB` layout and the `USBVariantBits` union (`cntl`/`isoc`/`hub`) match
+  the header exactly; `OLDUSBNAMES` (default 0) provides the
+  `usb.cntl.*`-style spellings.
+* **Not in the 1.4.1 header:** USL function prototypes
+  (USBFindNextPipe/USBBulkRead/…) and a `USBDNotificationProcPtr` type.
+  Function signatures verified from Rev 26 (see §5.5, §5.6) and DDK sample
+  call sites; the notification-proc type is `USBDDriverNotifyProcPtr`.
+
+### 8.2 Verified Apple class-driver sample patterns (DDK 1.4.1 Examples/)
+
+Answers to the M1A.1 brief's sample-pattern questions, with the file that
+demonstrates each:
+
+1. **How `USBDriverDescription` is instantiated** — a global struct
+   `USBDriverDescription TheUSBDriverDescription = { … }` initialized with
+   `kTheUSBDriverDescriptionSignature, kInitialUSBDriverDescriptor`, the
+   four `USBDeviceInfo` words, the five `USBInterfaceInfo` bytes, the
+   `USBDriverType` (Pascal string name, class/subclass, `NumVersion` as
+   four separate UInt8 fields — majorRev, minorAndBugRev, stage,
+   nonRelRev — per the NumVersion layout), and the
+   loading-options flags combined with `+`.
+   [USBKeypadHeader-MacAlly.c; KeyboardModuleHeader.c]
+2. **How the dispatch table is instantiated/exported** — a global
+   `USBClassDriverPluginDispatchTable TheClassDriverPluginDispatchTable =
+   { kClassDriverPluginVersion, … }`; the `.exp` export lists contain
+   exactly `TheUSBDriverDescription` and `TheClassDriverPluginDispatchTable`
+   (plus optional driver tables). [USBClassDriver.exp; USBHIDModule.exp]
+3. **How per-device/interface state is retained** — a static/global driver
+   parameter block struct with the `USBPB` embedded first, followed by
+   device/interface/pipe refs, copied descriptors, buffers, flags, retry
+   count and a `transDepth` reentrancy counter; `pb.pbLength` is set to
+   `sizeof(whole struct)`. The DDK modules are single-instance ("not
+   reentrant" guard in `InterfaceEntry`); M1B will need per-interface
+   instances (allocate in initializeInterfaceProc, free in finalize).
+   [USBKeypad.h `usbKeyPadPBStruct`; KeyboardModule.c]
+4. **How initializeInterfaceProc starts the state machine** — the proc
+   (called synchronously at task time) stores the interface ref, copies the
+   descriptors, initializes the PB (`InitParamBlock`: `usbReference`,
+   `pbVersion = kUSBCurrentPBVersion`, `usbBuffer = nil`, `usbStatus =
+   noErr`, flags/counts zeroed), sets the initial `usbRefcon` state, then
+   calls `InitiateTransaction(&pb)` and returns `noErr`. [KeyboardModule.c
+   `InterfaceEntry`; USBKeypad.c `DriverEntry`]
+5. **How USBPBs are initialized/reused** — one PB per transaction site,
+   re-initialized (`InitParamBlock`) before every USL call; completion
+   routines decode `usbStatus`, clear/advance the `usbRefcon` state, set
+   `kCompletionPending` while a call is in flight, and resubmit the same
+   PB (`if (!(refcon & kReturnFromDriver) && !driverRemovalPending)
+   InitiateTransaction(pb)`). Async calls return `kUSBPending` when
+   queued; anything else is an immediate error. [USBKeypad.c;
+   KeyboardModule.c]
+6. **How pending I/O is tracked during removal** — `driverRemovalPending`
+   flag + `kCompletionPending` bits; `kNotifyDriverBeingRemoved` sets the
+   flag, aborts pipes with `USBAbortPipeByReference(pipeRef)`, clears
+   `kCompletionPending` if the abort errors, and returns `kUSBDeviceBusy`;
+   completions stop resubmitting; `finalizeProc` returns `noErr` once
+   drained. [KeyboardModuleHeader.c `KeyboardNotifyProc`;
+   KeyboardModule.c]
+7. **CodeWarrior exports/link settings** — see §3 Q19/Q20: CodeWarrior
+   Pro 1 / IDE 2.0 + Universal Interfaces 3.3; PPC shared library
+   (`-xm sharedlibrary -share context`), type `'ndrv'`, creator `'usbd'`,
+   `-@export USBClassDriver.exp`, link `USBServicesLib` + `InterfaceLib`;
+   multi-module files via "Mac OS Merge" (CW) or `mergefragment` (MPW).
+   [DDK 1.4.1 Readme; USBKeypad.make; USBMultModule.proj]
+
+Context rule preserved (unchanged from §1.6): USB completion execution
+context is **not guaranteed** (secondary interrupt or task level); the
+completion routine and everything it touches must be valid at both levels.
+The DDK's own PrinterClassDriver demonstrates the mitigation for USL calls
+made from a completion context: `SafeUSBBulkRead` checks the execution
+level and, when at secondary interrupt time, re-enters the USL via
+`CallSecondaryInterruptHandler2(SecondaryUSBBulkRead, nil, pb, &result)`.
+[PrinterClassDriver.c; Rev 26 Ch 5, p. 102]
+
+### 8.3 Corrections applied to this document (M1A.1)
+
+1. Exported symbol names: `USBDriverDescription`/`USBClassDriverPluginDispatchTable`
+   → **`TheUSBDriverDescription`/`TheClassDriverPluginDispatchTable`** (§1.1,
+   §1.2, §3 Q2, §5.2, §5.8).
+2. Signature constant: `kUSBDriverDescriptionSignature` →
+   **`kTheUSBDriverDescriptionSignature`** (same value `'usbd'`) (§1.1).
+3. `kClassDriverPluginVersion` value now verified: **0x00001100** (§1.2, §3 Q3).
+4. Notification proc: type is **`USBDDriverNotifyProcPtr`** (3-arg with
+   refcon); "USBDNotificationProcPtr" does not exist in the header (§1.2, §8.1).
+5. Loading options: `kUSBInterfaceMatchOnly = 0x00000008` **is** defined
+   in the header; the Rev 26 figure references are valid (§1.2).
+6. Error naming: `kUSBNotRespondingError` → **`kUSBNotRespondingErr`
+   (−6911)** (Rev 26 prose keeps the "-Error" spelling); values verified
+   for `kUSBAbortedError (−6982)`, `kUSBDeviceBusy (−6977)`, `kUSBNoErr (0)`
+   (§5.3, §5.6, §8.1).
+7. MaxPacketSize alignment/multiples reframed as a **performance
+   consideration** (4K vs 8K transfer-descriptor limit; "for maximum
+   performance"); aligned 64-byte read stays the intended Keystation M1
+   choice (§3 Q12, §5.3, §5.5).
+8. Version/packaging open items resolved: no standalone USB DDK 1.4.2
+   (Mac OS 9 Update only, 'usbv' 0x01428000, no API change); DDK-era
+   toolchain = CodeWarrior Pro 1 / IDE 2.0 + UI 3.3 (§2, §3 Q19/Q20, §6, §7).
+9. USB.h 1.4.1 is types-only; USL prototypes live in later header
+   revisions — signature verification strategy documented (§2, §6).
