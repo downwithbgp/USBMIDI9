@@ -114,17 +114,19 @@ int um9_ms_parse(const unsigned char *buf, unsigned len, um9_ms_info *out)
             } else if (subtype == UM9_MS_MIDI_IN_JACK && it.blen >= 6u) {
                 um9_jack *jack = um9_ms_add_jack(out, UM9_JACK_DIR_IN);
                 if (jack != NULL) {
-                    jack->id = um9_desc_u8(&it, 3u);
-                    jack->type = um9_desc_u8(&it, 4u);
+                    /* bJackType at offset 3, bJackID at offset 4
+                     * (USB-MIDI 1.0, Table 6-3). */
+                    jack->type = um9_desc_u8(&it, 3u);
+                    jack->id = um9_desc_u8(&it, 4u);
                 }
             } else if (subtype == UM9_MS_MIDI_OUT_JACK && it.blen >= 9u) {
                 unsigned npins = um9_desc_u8(&it, 5u);
                 unsigned i;
                 um9_jack *jack = um9_ms_add_jack(out, UM9_JACK_DIR_OUT);
                 if (jack != NULL) {
-                    /* NOTE: per USB-MIDI 1.0 the MIDI OUT jack layout is
-                     * bJackType at offset 3 and bJackID at offset 4 — the
-                     * reverse of the MIDI IN jack layout. */
+                    /* bJackType at offset 3, bJackID at offset 4
+                     * (USB-MIDI 1.0, Table 6-4) — the same field order
+                     * as MIDI IN jacks. */
                     jack->type = um9_desc_u8(&it, 3u);
                     jack->id = um9_desc_u8(&it, 4u);
                     if (npins > UM9_MAX_JACK_SOURCES) {

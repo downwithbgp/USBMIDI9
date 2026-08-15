@@ -67,8 +67,10 @@ This follows the standard USB-MIDI 1.0 descriptor model
 
 * Not yet validated on Mac OS 9: no working driver exists yet (M0).
 * The real descriptor capture is now parsed correctly by the portable core on
-  Linux (M0 verification), including a fix this capture prompted for the
-  USB-MIDI 1.0 MIDI OUT jack field layout (bJackType precedes bJackID).
+  Linux (M0 verification), including a fix this capture prompted for jack
+  descriptor field order: both MIDI IN and MIDI OUT jack descriptors carry
+  bJackType at offset 3 and bJackID at offset 4 (USB-MIDI 1.0 Tables 6-3 and
+  6-4), and the parser initially read the fields in the wrong order.
 * M1 (Classic USB probe) will enumerate this device on the Power Mac G4,
   inspect descriptors, open the MIDIStreaming interface, and read endpoint
   `0x81` — pending verified Classic USB APIs (see `docs/research.md`).

@@ -59,13 +59,17 @@ static const unsigned char keystation_model[] = {
     0x09u, 0x04u, 0x01u, 0x00u, 0x02u, 0x01u, 0x03u, 0x00u, 0x00u,
     /* CS_INTERFACE: MS header */
     0x07u, 0x24u, 0x01u, 0x00u, 0x01u, 0x50u, 0x00u,
-    /* CS_INTERFACE: MIDI IN jack 1 (embedded) */
+    /* CS_INTERFACE: MIDI IN jack 1 (embedded). NOTE: bJackType sits at
+     * offset 3 and bJackID at offset 4 for BOTH jack kinds (USB-MIDI 1.0,
+     * Tables 6-3 and 6-4); on this device the IN jack type and ID values
+     * coincide (1/1, 2/2), so the dedicated test_jack_field_layout() test
+     * below uses distinct values to pin the field order down. */
     0x06u, 0x24u, 0x02u, 0x01u, 0x01u, 0x00u,
     /* CS_INTERFACE: MIDI IN jack 2 (external) */
     0x06u, 0x24u, 0x02u, 0x02u, 0x02u, 0x00u,
     /* CS_INTERFACE: MIDI OUT jack 3 (embedded), 1 source pin -> jack 2.
-     * NOTE: USB-MIDI 1.0 lays out MIDI OUT jacks as bJackType (offset 3)
-     * before bJackID (offset 4), the reverse of MIDI IN jacks. */
+     * NOTE: same bJackType (offset 3) / bJackID (offset 4) order as MIDI
+     * IN jacks (USB-MIDI 1.0, Table 6-4). */
     0x09u, 0x24u, 0x03u, 0x01u, 0x03u, 0x01u, 0x02u, 0x00u, 0x00u,
     /* CS_INTERFACE: MIDI OUT jack 4 (external), 1 source pin -> jack 1 */
     0x09u, 0x24u, 0x03u, 0x02u, 0x04u, 0x01u, 0x01u, 0x00u, 0x00u,
@@ -417,6 +421,58 @@ static void test_real_keystation_fixture(void)
     CHECK(ports.ports[1].embedded_jack_id == 1u);
 }
 
+/* Pin down the jack descriptor field order with values that cannot pass
+ * under a swapped layout: per USB-MIDI 1.0 Tables 6-3 and 6-4, BOTH MIDI IN
+ * and MIDI OUT jack descriptors place bJackType at offset 3 and bJackID at
+ * offset 4. (The real capture is ambiguous for the IN jacks because their
+ * type and ID values coincide: 1/1 and 2/2.) */
+static void test_jack_field_layout(void)
+{
+    static const unsigned char buf[] = {
+        /* Interface: MIDIStreaming */
+        0x09u, 0x04u, 0x00u, 0x00u, 0x02u, 0x01u, 0x03u, 0x00u, 0x00u,
+        /* CS_INTERFACE: MS header */
+        0x07u, 0x24u, 0x01u, 0x00u, 0x01u, 0x2Eu, 0x00u,
+        /* CS_INTERFACE: MIDI IN jack, type 1 (embedded), id 7 */
+        0x06u, 0x24u, 0x02u, 0x01u, 0x07u, 0x00u,
+        /* CS_INTERFACE: MIDI IN jack, type 2 (external), id 8 */
+        0x06u, 0x24u, 0x02u, 0x02u, 0x08u, 0x00u,
+        /* CS_INTERFACE: MIDI OUT jack, type 1 (embedded), id 9, src 8 */
+        0x09u, 0x24u, 0x03u, 0x01u, 0x09u, 0x01u, 0x08u, 0x00u, 0x00u,
+        /* CS_INTERFACE: MIDI OUT jack, type 2 (external), id 10, src 7 */
+        0x09u, 0x24u, 0x03u, 0x02u, 0x0Au, 0x01u, 0x07u, 0x00u, 0x00u
+    };
+    um9_ms_info info;
+    unsigned i;
+
+    CHECK(um9_ms_parse(buf, sizeof(buf), &info) == 1);
+    CHECK(info.num_in_jacks == 2u);
+    CHECK(info.num_out_jacks == 2u);
+    for (i = 0u; i < info.num_jacks; i++) {
+        const um9_jack *jack = &info.jacks[i];
+
+        if (jack->id == 7u) {
+            CHECK(jack->type == UM9_JACK_EMBEDDED);
+            CHECK(jack->direction == UM9_JACK_DIR_IN);
+        } else if (jack->id == 8u) {
+            CHECK(jack->type == UM9_JACK_EXTERNAL);
+            CHECK(jack->direction == UM9_JACK_DIR_IN);
+        } else if (jack->id == 9u) {
+            CHECK(jack->type == UM9_JACK_EMBEDDED);
+            CHECK(jack->direction == UM9_JACK_DIR_OUT);
+            CHECK(jack->num_sources == 1u);
+            CHECK(jack->source_ids[0] == 8u);
+        } else if (jack->id == 10u) {
+            CHECK(jack->type == UM9_JACK_EXTERNAL);
+            CHECK(jack->direction == UM9_JACK_DIR_OUT);
+            CHECK(jack->num_sources == 1u);
+            CHECK(jack->source_ids[0] == 7u);
+        } else {
+            fail("unexpected jack id", __FILE__, __LINE__);
+        }
+    }
+}
+
 int test_descriptors_run(void)
 {
     g_failures = 0;
@@ -427,6 +483,7 @@ int test_descriptors_run(void)
     test_ms_parse_stops_at_next_interface();
     test_ms_parse_no_ms_interface();
     test_ms_parse_malformed();
+    test_jack_field_layout();
     test_real_keystation_fixture();
     return g_failures;
 }
