@@ -10,7 +10,11 @@
  *
  * Status: the OMS PEF gate has PASSED on the real G4 (0 errors, 43
  * warnings after adding core/packets.c + USBManagerLib to the target);
- * this file is the resource-assembly gate.
+ * the Rez source also PASSED on the real G4 (2026-08-16: resource-only
+ * target, Linker: None, Make 0 errors — no 68K linker/main workaround
+ * required). Remaining resource work: final file assembly (import the
+ * Target-A PEF byte-for-byte as 'OMdv' 128 + type/creator) — see
+ * docs/g4-handoff.md.
  *
  * The authentic Universal Interfaces 3.3.2 Rez preamble is included so
  * every standard resource template/constant comes from Apple's headers
