@@ -12,6 +12,7 @@ int test_ring_run(void);
 int test_machine_run(void);
 int test_probe_run(void);
 int test_midi_stream_run(void);
+int test_oms_driver_run(void);
 
 int main(void)
 {
@@ -24,6 +25,7 @@ int main(void)
     failures += test_machine_run();
     failures += test_probe_run();
     failures += test_midi_stream_run();
+    failures += test_oms_driver_run();
 
     if (failures != 0) {
         printf("FAILED: %d check(s) failed\n", failures);

@@ -11,5 +11,6 @@
 
 THz SystemZone(void);
 void Delay(UInt32 ticks, UInt32 *finalTicks);
+UInt32 Ticks(void);   /* ticks since startup (OSUtils.h) */
 
 #endif /* USBMIDI9_HOST_CHECK_OSUTILS_H */

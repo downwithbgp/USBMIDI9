@@ -1,0 +1,10 @@
+#
+#	USBMIDI9 OMS driver CodeWarrior linker export list.
+#
+#	Exported symbols of the OMS driver PEF container. The 'OMdv' 128
+#	code resource is this fragment's PEF container (Roland SC-8850
+#	'OMdv' resource = the format reference; see docs/g4-handoff.md).
+#	`main` is the OMS driver entry point: OMSCALLBACK(long)
+#	main(short msg, long par1, long par2) (OMSDriver.h).
+#
+main

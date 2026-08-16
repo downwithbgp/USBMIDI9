@@ -22,7 +22,7 @@ SAN     := build-san
 
 CORE_SRCS := core/packets.c core/descriptors.c core/ports.c core/midi_stream.c
 RING_SRCS := classic/ring.c
-TEST_SRCS := tests/test_main.c tests/test_packets.c tests/test_descriptors.c tests/test_ring.c tests/test_machine.c tests/test_probe.c tests/test_midi_stream.c
+TEST_SRCS := tests/test_main.c tests/test_packets.c tests/test_descriptors.c tests/test_ring.c tests/test_machine.c tests/test_probe.c tests/test_midi_stream.c tests/test_oms_driver.c
 
 CORE_OBJS := $(CORE_SRCS:%.c=$(BUILD)/%.o)
 RING_OBJS := $(RING_SRCS:%.c=$(BUILD)/%.o)
@@ -77,6 +77,23 @@ $(SAN)/tests/test_probe.o: $(PROBE_DEPS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CLASSIC_CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
 
+# The OMS shim test compiles oms/oms_driver.c + oms/oms_rx.c + oms/oms_tx.c
+# (via #include) against the stub headers with a mock OMS/USB environment,
+# so it uses the Classic flags and depends on the shim sources, the OMS
+# stub headers, and the neutral stream converter. It links against
+# core/midi_stream.o (the converter the shim consumes).
+OMS_DEPS := tests/test_oms_driver.c oms/oms_driver.c oms/oms_rx.c oms/oms_tx.c \
+            oms/oms_driver.h core/midi_stream.h core/midi_stream.c \
+            classic/usbmidi9_dispatch.h classic/host-check/*.h
+
+$(BUILD)/tests/test_oms_driver.o: $(OMS_DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CLASSIC_CFLAGS) -c -o $@ $<
+
+$(SAN)/tests/test_oms_driver.o: $(OMS_DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CLASSIC_CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
+
 test: all
 	$(BUILD)/test_usbmidi9
 
@@ -100,6 +117,10 @@ CLASSIC_CFLAGS := -std=c89 -Wall -Wextra -Werror -Wdeclaration-after-statement \
 check-classic:
 	$(CC) $(CLASSIC_CFLAGS) -c -o $(BUILD)/usb_driver.o classic/usb_driver.c
 	$(CC) $(CLASSIC_CFLAGS) -c -o $(BUILD)/probe.o probe/probe.c
+	# The OMS driver entry is `long main(short, long, long)` (OMSDriver.h);
+	# -Wmain only accepts the C signature, so the host check renames it
+	# (the G4 build exports the real `main` via USBMIDI9_OMS.exp).
+	$(CC) $(CLASSIC_CFLAGS) -Dmain=oms_driver_entry -c -o $(BUILD)/oms_driver.o oms/oms_driver.c
 	@echo "check-classic: Classic sources compile against stub headers"
 
 clean:

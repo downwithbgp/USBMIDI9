@@ -24,6 +24,7 @@
 #define kUSBPipeStalledError    (-6979) /* pipe has stalled */
 #define kUSBAbortedError        (-6982) /* pipe aborted */
 #define kUSBNotFound            (-6987) /* not found */
+#define kUSBBadDispatchTable    (-6950) /* bad dispatch table (USB.h) */
 #define kUSBInternalErr         (-6999) /* internal error */
 
 #endif /* USBMIDI9_HOST_CHECK_MACERRORS_H */
