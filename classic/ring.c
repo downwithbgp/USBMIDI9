@@ -14,7 +14,7 @@
  * data, on the single-CPU Classic target.
  */
 
-#include "classic/ring.h"
+#include "ring.h"
 
 static unsigned is_power_of_two(unsigned n)
 {
