@@ -31,7 +31,7 @@ SAN_CORE_OBJS := $(CORE_SRCS:%.c=$(SAN)/%.o)
 SAN_RING_OBJS := $(RING_SRCS:%.c=$(SAN)/%.o)
 SAN_TEST_OBJS := $(TEST_SRCS:%.c=$(SAN)/%.o)
 
-.PHONY: all test test-sanitize check-classic clean
+.PHONY: all test test-sanitize check-classic check-omdvdata clean
 
 all: $(BUILD)/libusbmidi9.a $(BUILD)/test_usbmidi9
 
@@ -129,6 +129,12 @@ check-classic:
 	# (the G4 build exports the real `main` via USBMIDI9_OMS.exp).
 	$(CC) $(CLASSIC_CFLAGS) -Dmain=oms_driver_entry -c -o $(BUILD)/oms_driver.o oms/oms_driver.c
 	@echo "check-classic: Classic sources compile against stub headers"
+
+# The 'OMdv' 128 packaging tool: build + verify the four OMdvData
+# validations against the fixture PEF (docs/g4-handoff.md). The tool
+# itself is the file the G4 consumes to produce OMdvData.
+check-omdvdata:
+	CC="$(CC)" sh tests/test_omdvdata.sh
 
 clean:
 	rm -rf $(BUILD) $(SAN)

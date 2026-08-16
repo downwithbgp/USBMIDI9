@@ -25,3 +25,5 @@ jobs:
         run: make test-sanitize CC=${{ matrix.cc }}
       - name: Classic sources compile check (stub headers)
         run: make check-classic CC=${{ matrix.cc }}
+      - name: 'OMdv' 128 packaging tool check (OMdvData build+validate)
+        run: make check-omdvdata CC=${{ matrix.cc }}

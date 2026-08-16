@@ -217,28 +217,35 @@ the final driver file is produced by the documented mechanism below.
 
 ### Assembling the OMS driver file
 
-The final `USBMIDI9 OMS Driver` file (resource-fork only). The
-documented CodeWarrior mechanism for a standalone resource-only file is
-the **MacOS Merge linker with Project Type = "Resource File"** (CW Pro 4
-"Targeting Mac OS", ch. 9): the Rez output (compiled into the project
-build — ch. 8) is merged into the target's output file's resource fork,
-and the panel's **File Name / Creator / Type / Copy Resources / Skip
-Resource Types** fields control the artifact. This is a resource merge,
-not a code link: no code goes through it, and the PEF stays out of this
-build. (If CW Pro 5.3's 68K Linker popup lacks MacOS Merge, the Rez
-command line with `-merge` output is the equivalent — verify on the G4.)
+**Outer-container gate — PASS (2026-08-16, real G4):** the **MacOS
+Merge linker with Project Type = "Resource File"** (CW Pro 4 "Targeting
+Mac OS", ch. 9) produced the real `USBMIDI9 OMS Driver` file; ResEdit
+shows `'OMdi'` 128, `'SICN'` 128, `'vers'` 1. The container production
+mechanism is therefore **proven** (Rez output is merged into the target
+output file's resource fork; the panel's **File Name / Creator / Type /
+Copy Resources / Skip Resource Types** fields control the artifact).
 
-1. Resource fork = Rez output + the `'OMdv'` 128 resource (Target A PEF,
-   imported byte-for-byte — see "The 'OMdv' resource" below).
-2. Finder type `'OMdv'`, creator `'USM9'` — set period-correctly with
-   CodeWarrior's own **Creator/Type fields** on the MacOS Merge panel
-   ("The Creator and Type fields let you change the file type and
-   creator of the linked output file that your project produces" — CW
-   Pro 4 "Targeting Mac OS", ch. 3/9), or after the fact with MPW
+The **only remaining packaging change** is adding `'OMdv'` 128 via
+Rez `read` from `OMdvData` (see below). Final acceptance:
+
+1. `'OMdv'` 128 present, imported byte-for-byte from `OMdvData`
+   (Target-A PEF + 4-byte length header).
+2. MacOS Merge must **not** skip resource type `OMdv` (review the Skip
+   Resource Types list on the MacOS Merge panel; `OMdi`/`SICN`/`vers`
+   must not be skipped either).
+3. ResEdit inspection requires **exactly**: `OMdi` 128, `OMdv` 128,
+   `SICN` 128, `vers` 1.
+4. Do **not** install into System Folder:OMS Folder until step 3
+   passes.
+5. Finder type `'OMdv'`, creator `'USM9'` — already set via
+   CodeWarrior's **Creator/Type fields** on the MacOS Merge panel ("The
+   Creator and Type fields let you change the file type and creator of
+   the linked output file that your project produces" — CW Pro 4
+   "Targeting Mac OS", ch. 3/9), or after the fact with MPW
    `SetFile -t 'OMdv' -c 'USM9'` or ResEdit's Get Info. (The Finder's
    Get Info does not expose type/creator on classic Mac OS.)
-3. Name: `USBMIDI9 OMS Driver` (31 chars max is fine).
-4. Destination for testing: **System Folder:OMS Folder**.
+6. Name: `USBMIDI9 OMS Driver` (31 chars max is fine); destination for
+   testing: **System Folder:OMS Folder**.
 
 ### The 'OMdv' resource
 
@@ -250,13 +257,31 @@ Produce the same shape:
 
 - Build Target A as a PEF container ("shared library" output); the
   container's exported symbol is `main`.
-- Import the container byte-for-byte, headers included: concatenate the
-  4-byte length header (`00 00 <len>`) + the PEF container bytes into
-  one file, then embed it with **Rez's `read` statement**:
-  `read 'OMdv' (128) "OMdvData";` — `read` takes the file's entire
-  contents verbatim as the resource data (Rez language reference; verify
-  the one-liner on the G4). No wrapper is invented: this is the
-  authenticated Roland shape, and Rez does not transform the bytes.
+- **OMdvData** = 4-byte big-endian PEF length + the **exact** Target-A
+  PEF bytes. Validation (all four must pass):
+  - raw PEF begins with `Joy!peffpwpc`
+  - OMdvData size = PEF size + 4
+  - OMdvData[0:4] = big-endian PEF size (`00 00 <len>`; the OMS header
+    is 16-bit, so the PEF must be <= 65535 bytes)
+  - OMdvData[4:16] = `Joy!peffpwpc`
+- **`tools/omdvdata.c`** (prepared in the repo, host-tested by
+  `make check-omdvdata`) builds and validates OMdvData from the PEF:
+  `omdvdata <pef-in> [omdvdata-out]`. With one argument it writes
+  `OMdvData` next to the input (classic Mac `:` and Unix `/` path
+  separators both handled). Stdio only — compiles on the G4 with
+  CodeWarrior/MSL as a console app (drag the PEF onto its icon), or
+  with MPW's C compiler, or on Linux. Copy the PEF to Linux and run it
+  there if you prefer — the output is byte-identical either way.
+- **`oms/omdv.r`** (prepared in the repo) adds the resource with
+  **Rez's `read` statement**: `read 'OMdv' (128) "OMdvData";` — `read`
+  takes the file's entire contents verbatim as the resource data (Rez
+  language reference). Add `oms/omdv.r` to the SAME MacOS Merge
+  resource target as `oms_driver.r`. Keep `OMdvData` in the project
+  folder (Rez resolves relative paths from its working directory), or
+  use a full path in the file.
+- Ensure **MacOS Merge does not skip resource type `OMdv`**: open the
+  MacOS Merge panel (Target Settings) and review the **Skip Resource
+  Types** list; remove `OMdv` (and `OMdi`/`SICN`/`vers`) if present.
 - Fallback (verified by construction): a small Resource Manager tool on
   the G4 — `FSpCreateResFile` / `AddResource` / `UpdateResFile` with the
   header+PEF data — or ResEdit (manual resource add; no practical raw
@@ -269,6 +294,60 @@ Produce the same shape:
 - Validate the result against the Roland file before installing
   (hexdump offset 0: `00 00 <len> 4A 6F 79 21`).
 
+### Exact G4 procedure — add 'OMdv' 128
+
+Complete remaining packaging work. Files needed: `oms/omdv.r` and
+`tools/omdvdata.c` (both in the repo), the Target-A PEF output file,
+and ResEdit.
+
+1. **Get the Target-A PEF.** Build Target A (the PPC PEF "shared
+   library" target) as already done; note the output file's path.
+2. **Build the omdvdata tool** (one C file, stdio only, no Toolbox
+   calls):
+   - CodeWarrior: **File > New... > Project...** and pick the MacOS
+     C/C++ app (console) template — the one that links MSL with SIOUX
+     (a "Console" template if present). Name it `omdvdata`; add
+     `tools/omdvdata.c` (**Project > Add Files...**); **Make**.
+   - Or, if MPW with a C compiler is available, compile it there:
+     `C -o omdvdata omdvdata.c`.
+   - Or copy the PEF to the Linux box, run
+     `cc -O2 -o omdvdata tools/omdvdata.c && ./omdvdata <pef>` there,
+     and copy the resulting `OMdvData` back — byte-identical output.
+3. **Produce OMdvData.** Run the tool on the PEF — with one argument
+   (drag the PEF onto the `omdvdata` app icon; Finder passes it as the
+   argument) it writes `OMdvData` next to the PEF; the console shows
+   the four validations and all must say OK. Press Return in the
+   console window to quit. Confirm `OMdvData` is in the project folder.
+4. **Add `oms/omdv.r` to the resource target.** Select the resource
+   target (the MacOS Merge one) in the project window, then **Project >
+   Add Files...**, choose `oms/omdv.r`, **Add**. (It must NOT be a
+   member of Target A.)
+5. **Check the MacOS Merge panel.** **Project > Target Settings...**
+   (or double-click the target), MacOS Merge (68K Linker) panel:
+   - Project Type = **Resource File**
+   - File Name = `USBMIDI9 OMS Driver`; Creator = `USM9`; Type = `OMdv`
+   - **Copy Resources: checked**
+   - **Skip Resource Types: must NOT contain `OMdv`** (nor `OMdi`,
+     `SICN`, `vers`) — remove them if present.
+6. **Make** (**Project > Make**, ⌘K). Rez compiles `oms/omdv.r` and the
+   `read` statement embeds `OMdvData` verbatim as `'OMdv'` 128.
+   - If Rez cannot find `OMdvData`: the Rez working directory is not
+     the project folder — move `OMdvData` there, or edit `oms/omdv.r`
+     to a full path.
+7. **ResEdit inspection (required before install).** Open the output
+   `USBMIDI9 OMS Driver` in ResEdit. The resource list must show
+   **exactly**:
+   - `OMdi` 128
+   - `OMdv` 128
+   - `SICN` 128
+   - `vers` 1
+   Optionally double-click `OMdv` 128: first 4 bytes = big-endian PEF
+   size (`00 00 <len>`), bytes 4..15 = `Joy!peffpwpc`, total size = PEF
+   size + 4.
+8. **Install only after step 7 passes:** copy the file into
+   **System Folder:OMS Folder**, then run the runtime gates (probe
+   regression, OMS driver loads, OMS receives MIDI).
+
 If OMS 2.3.8 does not load the driver, first check: file type/creator,
 resource IDs (128), the `'OMdi'` id/flags bytes, and the PEF header shape
 against the Roland reference. The 'OMdi'/'OMdv' loading mechanism itself is
@@ -279,15 +358,18 @@ Roland drivers use them).
 
 0. **PEF link gate — PASS (2026-08-16)**: OMS PEF target builds and
    links: 0 errors, 43 warnings. Membership per the manifest above.
-1. **Resource-assembly gate — CURRENT (partial PASS 2026-08-16)**: the
-   Rez source PASSES and the resource-only target configuration is valid
-   (Linker: None target, Make 0 errors — no 68K linker/`main` workaround
-   needed). Remaining: produce the final file with MacOS Merge (Project
-   Type = Resource File) or Rez CLI; import the Target-A PEF as `'OMdv'`
-   128 byte-for-byte (Rez `read`, verify on G4); set type `'OMdv'` /
-   creator `'USM9'` (CW Creator/Type fields or `SetFile`); name
-   `USBMIDI9 OMS Driver`; install in System Folder:OMS Folder. Then
-   continue with the runtime gates:
+1. **Resource-assembly gate — CURRENT (outer-container PASS
+   2026-08-16)**: Rez source PASS, resource-only target config PASS
+   (Linker: None, 0 errors), and the **MacOS Merge / Project Type =
+   Resource File** container mechanism PASS (real file with `'OMdi'`
+   128, `'SICN'` 128, `'vers'` 1 verified in ResEdit). Remaining —
+   the only packaging change: add `'OMdv'` 128 via Rez `read` from
+   `OMdvData` (`tools/omdvdata.c` builds+validates it; `oms/omdv.r`
+   does the read; both prepared in the repo), ensure MacOS Merge does
+   not skip `OMdv`, then ResEdit must show **exactly** `OMdi` 128 /
+   `OMdv` 128 / `SICN` 128 / `vers` 1. Do not install into System
+   Folder:OMS Folder until that inspection passes. Then continue with
+   the runtime gates:
 2. **Probe regression**: the existing Probe still enumerates and receives
    Keystation packets (nothing broke — the Probe's 0x0001 minimum accepts
    the v0x0002 driver).
