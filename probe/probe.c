@@ -143,11 +143,14 @@ static Boolean ProbeKeyDown(const KeyMap keys, UInt8 keycode)
 }
 
 /* Probe poll state, kept by the caller so the poll loop can be driven
- * from host tests (tests/test_probe.c). */
+ * from host tests (tests/test_probe.c, which includes this file into
+ * its translation unit). */
 struct USBMIDI9ProbeState {
     UInt32 lastCount;       /* last printed interface count */
     int noDriverReported;   /* 1 = the no-driver message is on screen */
 };
+
+static Boolean USBMIDI9ProbePoll(struct USBMIDI9ProbeState *state);
 
 /* Perform one poll iteration: refresh the driver/interface state, print
  * state transitions, drain received bytes. Returns nonzero when the
@@ -156,7 +159,7 @@ struct USBMIDI9ProbeState {
  * State transitions (no spamming): the no-driver message prints on the
  * first poll without a driver (startup) and again whenever the driver
  * disappears after having been present. */
-Boolean USBMIDI9ProbePoll(struct USBMIDI9ProbeState *state)
+static Boolean USBMIDI9ProbePoll(struct USBMIDI9ProbeState *state)
 {
     struct USBMIDI9DispatchTable *table;
     UInt32 count;
