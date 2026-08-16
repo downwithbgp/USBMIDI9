@@ -8,21 +8,42 @@
  * Drivers"; real drivers: OMS 2.3.8 IAC/Standard Interface/MIDIPort 32,
  * Roland SC-8850 'RdSU').
  *
+ * Status: the OMS PEF gate has PASSED on the real G4 (0 errors, 43
+ * warnings after adding core/packets.c + USBManagerLib to the target);
+ * this file is the resource-assembly gate.
+ *
+ * The authentic Universal Interfaces 3.3.2 Rez preamble is included so
+ * every standard resource template/constant comes from Apple's headers
+ * — nothing hand-declared:
+ *   'vers' template  — MacTypes.r (via Types.r); stage constants
+ *                      development/alpha/beta/final (+ release) are the
+ *                      template's own defaults
+ *   'SICN' template  — Icons.r (via Types.r): an array of 32-byte hex
+ *                      strings, one per 16x16 bitmap
+ *   verUS (region)   — Script.r (via IntlResources.r, via Types.r)
+ * 'OMdi' has NO Apple template (it is Opcode's own resource): its type
+ * is declared here with the exact OMSDriverParams layout (OMSDriver.h).
+ *
  * Resources:
- *   'OMdi' 128 — OMSDriverParams (OMSDriver.h). id 0x7F10 (unassigned in
- *                the inspected OMS 2.3.8 driver set; determines
+ *   'OMdi' 128 — OMSDriverParams (OMSDriver.h), 16 bytes exact:
+ *                short id(2) + OMSBool xxisSmart(1) + OMSBool
+ *                hasMenuOrWindows(1) + short xxportNumM(2) + short
+ *                xxportNumB(2) + flags(1) + driverCompatibilityLevel(1)
+ *                + reservedFlags[6]. id 0x7F10 (unassigned in the
+ *                inspected OMS 2.3.8 driver set; determines
  *                omdvAddDevices call order only), no flags, driver
  *                compatibility level 1 (OMS 2.0+ driver API).
- *   'SICN' 128 — small icon list: 16x16 monochrome bitmaps, 32 bytes
- *                each (icon, then its mask; the OMS Spec wants pairs,
- *                normal and highlighted — OMS Setup draws them).
- *                One 16x16 icon + 16x16 mask (64 bytes), matching the
- *                authentic 64-byte SICN 128 of Opcode's own SampleCell
- *                and MIDIPort 32 drivers (verified in ~/research/oms).
+ *   'SICN' 128 — small icon list: one 16x16 monochrome icon + its mask,
+ *                32 bytes each (64 bytes total), matching the authentic
+ *                64-byte SICN 128 of Opcode's own SampleCell and
+ *                MIDIPort 32 drivers (verified in ~/research/oms).
+ *   'vers' 1   — 1.0.0d1, development stage, region verUS; template
+ *                from the authentic MacTypes.r (raw layout verified
+ *                against the OMS 2.3.8 IAC driver's vers 1:
+ *                02 38 80 02 00 00 + two Pascal strings).
  *   'ICN#'/icl8/icl4 — larger icons (present in verified period drivers;
  *                optional; omitted in v0.1 to keep the resource small).
- *   'BNDL'/'FREF' — Finder bundle for the file's icon/version.
- *   'vers' 1 — version resource.
+ *   'BNDL'/'FREF' — Finder bundle (optional; omitted in v0.1).
  *
  * The 'OMdv' 128 CODE resource is NOT declared here: it is the PEF
  * container produced at link time (the Roland SC-8850 'OMdv' resource
@@ -31,7 +52,11 @@
  * handoff (docs/g4-handoff.md).
  */
 
-/* OMSDriverParams layout (OMSDriver.h), as a Rez type. */
+#include "Types.r"
+
+/* OMSDriverParams layout (OMSDriver.h), as a Rez type. Opcode-specific:
+ * no authentic Apple template exists. Field order/sizes mirror the
+ * struct exactly (16 bytes, no padding). */
 type 'OMdi' {
     integer;                /* id: driver load order (assigned by Opcode) */
     boolean;                /* xxisSmart (obsolete) */
@@ -56,57 +81,20 @@ resource 'OMdi' (128) {
 
 /* 16x16 monochrome icon: a MIDI keyboard block with a cable stub (rows
  * in hex; set bits (1) = black), followed by its mask (the opaque
- * silhouette). 32 bytes icon + 32 bytes mask — one pair of the SICN
- * list (OMSDevice.iconID 0); further pairs can be appended on the G4
- * with ResEdit if more icons are wanted. Size and 16x16 format verified
- * against authentic Opcode/Roland OMS drivers (64- and 128-byte SICN
- * 128 resources are all lists of 32-byte 16x16 bitmaps). */
-type 'SICN' {
-    hex string;
-    hex string;
-};
-
+ * silhouette). Template from the authentic Icons.r: each array element
+ * is one 32-byte hex string — element 1 = icon, element 2 = mask (the
+ * OMS Spec wants pairs, normal and highlighted; OMSDevice.iconID 0).
+ * Size and 16x16 format verified against authentic Opcode/Roland OMS
+ * drivers (64- and 128-byte SICN 128 resources are all lists of 32-byte
+ * 16x16 bitmaps). */
 resource 'SICN' (128) {
-    "0000"
-    "0000"
-    "0000"
-    "0000"
-    "0180"
-    "0180"
-    "0180"
-    "0180"
-    "0FF0"
-    "1668"
-    "1668"
-    "1008"
-    "1008"
-    "1008"
-    "1008"
-    "0FF0",
-    "0000"
-    "0000"
-    "0000"
-    "0000"
-    "0180"
-    "0180"
-    "0180"
-    "0180"
-    "1FF8"
-    "1FF8"
-    "1FF8"
-    "1FF8"
-    "1FF8"
-    "1FF8"
-    "1FF8"
-    "1FF8"
+    "000000000000000001800180018001800FF01668166810081008100810080FF0",
+    "000000000000000001800180018001801FF81FF81FF81FF81FF81FF81FF81FF8"
 };
 
-/* Version resource: 1.0.0d1, development stage. Syntax per the
- * authentic Universal Interfaces 3.3.2 MacTypes.r 'vers' template
- * (major/minorBug/stage/nonRelRev are single hex bytes; constants are
- * development/alpha/beta/final, not devStage) — raw layout verified
- * against the OMS 2.3.8 IAC driver's vers 1 (02 38 80 02 00 00 + two
- * Pascal strings). */
+/* Version resource: 1.0.0d1, development stage, region verUS. The
+ * 'vers' template and its stage constants come from the authentic
+ * MacTypes.r (included via Types.r) — NOT hand-declared. */
 resource 'vers' (1) {
     0x01, 0x00,
     development, 0x01,
