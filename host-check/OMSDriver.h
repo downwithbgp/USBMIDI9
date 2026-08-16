@@ -70,9 +70,13 @@ TYPEDEF_OMSPROC(OMSDeviceH, OMSDvrAdd1DevProc1)(OMSDevice *device,
                                                 short devSize);
 
 /* OMSSendParams (OMSDriver.h) — the driver fills proc/paramD0/paramD1;
- * OMS fills omsUniqueID. */
+ * OMS fills omsUniqueID. proc is an OMSReadHook2UPP — the
+ * RoutineDescriptor the driver builds with NewOMSReadHook2 (OMS.h /
+ * OMSUPPs.h) — NOT a raw OMSReadHook2 function: the real G4 build
+ * rejected the raw assignment with "cannot convert 'pascal void
+ * (*)...'". */
 typedef struct OMSSendParams {
-    OMSReadHook2 proc;               /* returned by driver */
+    OMSReadHook2UPP proc;            /* returned by driver */
     long paramD0, paramD1;           /* returned by driver */
     OMSUniqueID omsUniqueID;         /* passed by system */
 } OMSSendParams;

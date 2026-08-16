@@ -169,7 +169,12 @@ struct USBDeviceNotificationParameterBlock {
     UInt16 pbLength;
     UInt16 pbVersion;
     USBNotificationType usbDeviceNotification;  /* in: filter, out: event */
-    UInt8 reserved1;
+    /* Authentic DDK form (USB.h 1.4.1): an ARRAY of one byte ("needed
+     * because of 2-byte 68k alignment"), not a scalar — `reserved1 =
+     * 0` does not compile on the real G4 header ("not an lvalue"). The
+     * driver never touches it (oms_zero covers it; Apple's
+     * StorageClassShim.c does not initialize it either). */
+    UInt8 reserved1[1];
     USBDeviceRef usbDeviceRef;
     UInt16 usbClass;
     UInt16 usbSubClass;

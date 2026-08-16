@@ -82,6 +82,24 @@ enum {
     kFourByteCode                 = 3
 };
 
+/* ISA/RTA (MixedMode.h, verbatim; the G4 PPC build selects the
+ * TARGET_CPU_PPC branch: kPowerPCISA | kPowerPCRTA, so
+ * GetCurrentArchitecture() evaluates to 1). */
+typedef SInt8 ISAType;
+enum {
+    kM68kISA                    = 0,
+    kPowerPCISA                 = 1
+};
+typedef SInt8 RTAType;
+enum {
+    kOld68kRTA                  = 0 << 4,
+    kPowerPCRTA                 = 0 << 4,
+    kCFM68kRTA                  = 1 << 4
+};
+#define GetCurrentISA()     ((ISAType) kPowerPCISA)
+#define GetCurrentRTA()     ((RTAType) kPowerPCRTA)
+#define GetCurrentArchitecture()    (GetCurrentISA() | GetCurrentRTA())
+
 typedef unsigned long ProcInfoType;   /* MixedMode.h */
 
 /* UniversalProcPtr: pointer to classic 68K code or a RoutineDescriptor
@@ -103,5 +121,23 @@ typedef struct RoutineDescriptor *UniversalProcPtr;
  * model register-based dispatch. */
 extern long CallUniversalProc(UniversalProcPtr theProcPtr,
                               ProcInfoType procInfo, ...);
+
+/* ProcInfo builders for stack-based (Pascal) routines (MixedMode.h,
+ * verbatim) — used by the OMSUPPs.h generated UPP macros. */
+#define RESULT_SIZE(sizeCode) \
+    ((ProcInfoType)(sizeCode) << kResultSizePhase)
+
+#define STACK_ROUTINE_PARAMETER(whichParam, sizeCode) \
+    ((ProcInfoType)(sizeCode) << (kStackParameterPhase + (((whichParam) - 1) * kStackParameterWidth)))
+
+/* RoutineDescriptor constructors (MixedMode.h, CFM branch — the G4
+ * build). NewOMSReadHook2 (OMSUPPs.h) creates the send-proc descriptor
+ * with NewRoutineDescriptor; the driver releases it with
+ * DisposeRoutineDescriptor. Host tests supply forwarding
+ * implementations; the real constructors run on the G4. */
+extern UniversalProcPtr NewRoutineDescriptor(ProcPtr theProc,
+                                             ProcInfoType theProcInfo,
+                                             ISAType theISA);
+extern void DisposeRoutineDescriptor(UniversalProcPtr theProcPtr);
 
 #endif /* USBMIDI9_HOST_CHECK_MIXEDMODE_H */

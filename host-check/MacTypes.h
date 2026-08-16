@@ -13,6 +13,7 @@
 typedef unsigned char UInt8;
 typedef unsigned short UInt16;
 typedef unsigned int UInt32;
+typedef signed char SInt8;
 typedef signed int SInt32;
 typedef unsigned char Boolean;
 typedef UInt32 OSType;
@@ -23,6 +24,15 @@ typedef Ptr *Handle;             /* MacTypes.h: handle to a relocatable block */
 typedef UInt8 *StringPtr;        /* MacTypes.h: Pascal string pointer */
 typedef UInt8 Str31[32];   /* Pascal string: length byte + 31 chars */
 typedef UInt8 Str63[64];   /* Pascal string: length byte + 63 chars */
+
+/* ProcPtr (MacTypes.h) — generic function pointer. The authentic header
+ * declares it as a FUNCTION type (`typedef CALLBACK_API_C(long, ProcPtr)();
+ * `); CodeWarrior accepts casts to a function type, gcc/clang do not, so
+ * the stub models the pointer-to-function form instead — this keeps the
+ * verbatim OMSUPPs.h UPP macro cast `(ProcPtr)(userRoutine)` compiling
+ * (same documented adaptation as FindSymbol's const-char name in
+ * CodeFragments.h). The distinction is invisible at every call site. */
+typedef void (*ProcPtr)();
 
 /* NumVersion (MacTypes.h): major, minorAndBugRev, stage, nonRelRev. */
 typedef struct NumVersion {

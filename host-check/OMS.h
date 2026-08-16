@@ -166,6 +166,15 @@ typedef struct OMSMIDIPacket255 {
 /* OMSReadHook2 (OMS.h) — the send proc an OMS driver returns for a port. */
 TYPEDEF_OMSPROC(void, OMSReadHook2)(OMSMIDIPacket *packet, long readHookRefCon);
 
+/* OMS_MAC_CFM (OMSTypes.h): 1 on the G4 PPC CFM target (authentic:
+ * `#if USESROUTINEDESCRIPTORS || TARGET_RT_MAC_CFM`). OMS.h includes
+ * the generated OMSUPPs.h (verbatim) right here, exactly like the
+ * authentic header: it supplies OMSReadHook2UPP / NewOMSReadHook2 /
+ * CallOMSReadHook2, whose procInfo describes a Pascal stack-based
+ * routine. */
+#define OMS_MAC_CFM 1
+#include "OMSUPPs.h"
+
 /* OMS error type (OMSTypes.h): typedef short OMSErr; */
 typedef short OMSErr;
 

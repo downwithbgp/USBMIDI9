@@ -118,6 +118,11 @@ struct oms_state {
                                               remembered, never touched */
     struct oms_iface ifaces[kUSBMIDI9OMSMaxInterfaces];
     struct USBDeviceNotificationParameterBlock notifPb;
+    OMSReadHook2UPP sendUpp;          /* send-proc RoutineDescriptor
+                                         (NewOMSReadHook2 at omdvInit;
+                                         disposed at re-init and
+                                         omdvDispose; handed out by
+                                         omdvGetPortSendProc) */
     long rxRoutine;                       /* cached 68K OMSReceivedFromPort
                                              address (OMSGetCallAddress
                                              return type, long); 0 =

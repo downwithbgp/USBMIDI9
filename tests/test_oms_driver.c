@@ -280,6 +280,34 @@ long CallUniversalProc(UniversalProcPtr theProcPtr, ProcInfoType procInfo, ...)
     return 0L;
 }
 
+/* Mixed Mode Manager RoutineDescriptor mocks (MixedMode.h declares
+ * these; the shim reaches them through the OMSUPPs.h UPP macros). The
+ * host has no RoutineDescriptor machinery: the "descriptor" is the
+ * routine itself, so the CallUniversalProc forwarding mock above can
+ * invoke it. */
+static int gNewRDCalls;
+static int gDisposeRDCalls;
+static ProcPtr gLastRDProc;
+static ProcInfoType gLastRDProcInfo;
+static ISAType gLastRDISA;
+
+UniversalProcPtr mock_NewRoutineDescriptor(ProcPtr theProc,
+                                           ProcInfoType theProcInfo,
+                                           ISAType theISA)
+{
+    gNewRDCalls++;
+    gLastRDProc = theProc;
+    gLastRDProcInfo = theProcInfo;
+    gLastRDISA = theISA;
+    return (UniversalProcPtr)theProc;
+}
+
+void mock_DisposeRoutineDescriptor(UniversalProcPtr theProcPtr)
+{
+    (void)theProcPtr;
+    gDisposeRDCalls++;
+}
+
 short OMSOpenDriverResFile(OMSSignature driverID)
 {
     (void)driverID;
@@ -377,12 +405,37 @@ static OMSDeviceH mock_add1(OMSDevice *device, short devSize)
 #define USBGetNextDeviceByClass oms_mock_USBGetNextDeviceByClass
 #define USBGetDriverConnectionID oms_mock_USBGetDriverConnectionID
 #define FindSymbol oms_mock_FindSymbol
+#define NewRoutineDescriptor mock_NewRoutineDescriptor
+#define DisposeRoutineDescriptor mock_DisposeRoutineDescriptor
 
 #define main oms_driver_main
 #include "oms/oms_driver.c"
 #include "oms/oms_rx.c"
 #include "oms/oms_tx.c"
 #undef main
+#undef NewRoutineDescriptor
+#undef DisposeRoutineDescriptor
+
+/* Compile-time guards (the G4 gate: host-check types must match the
+ * authentic headers exactly).
+ *
+ * 1. OMSSendParams.proc is OMSReadHook2UPP — a RoutineDescriptor
+ *    pointer, not a raw OMSReadHook2 function: the real G4 build
+ *    rejected the raw assignment with "cannot convert 'pascal void
+ *    (*)...'". If proc regresses to the raw function type, &proc is no
+ *    longer OMSReadHook2UPP * and this array type becomes negative.
+ * 2. USBDeviceNotificationParameterBlock.reserved1 is UInt8[1] (USB.h
+ *    1.4.1) — an ARRAY: the real G4 build rejected `reserved1 = 0u`
+ *    with "not an lvalue". A scalar regression makes &reserved1 a
+ *    UInt8 * and this array type becomes negative. */
+typedef char oms_send_proc_is_upp_guard[
+    __builtin_types_compatible_p(
+        __typeof__(&((struct OMSSendParams *)0)->proc),
+        OMSReadHook2UPP *) ? 1 : -1];
+typedef char usb_notif_reserved1_is_array_guard[
+    __builtin_types_compatible_p(
+        __typeof__(&((struct USBDeviceNotificationParameterBlock *)0)->reserved1),
+        UInt8 (*)[1]) ? 1 : -1];
 
 /* Install the fake environment with `n` interfaces and a driver present. */
 static void mock_setup(unsigned n)
@@ -413,6 +466,11 @@ static void mock_setup(unsigned n)
     gCallUniversalCalls = 0;
     gLastCallProc = NULL;
     gLastProcInfo = 0u;
+    gNewRDCalls = 0;
+    gDisposeRDCalls = 0;
+    gLastRDProc = NULL;
+    gLastRDProcInfo = 0u;
+    gLastRDISA = 0;
     gTxCapturedCount = 0u;
     gAddedCount = 0u;
     gFakeTable.version = kUSBMIDI9DispatchTableVersion;
@@ -465,7 +523,8 @@ static void mock_notify(UInt8 event, USBDeviceRef deviceRef)
     pb.pbLength = (UInt16)sizeof(pb);
     pb.pbVersion = 0u;
     pb.usbDeviceNotification = event;
-    pb.reserved1 = 0u;
+    /* reserved1 is UInt8[1] (authentic USB.h 1.4.1) — an array, not
+     * assignable; the shim never reads it. */
     pb.usbDeviceRef = deviceRef;
     pb.usbClass = 0x01u;
     pb.usbSubClass = 0x03u;
@@ -668,7 +727,7 @@ static void test_port_refnum_and_send_proc(void)
     sendPars.omsUniqueID = 0;
     CHECK(oms_driver_main(omdvGetPortSendProc, (long)(Ptr)&portID,
                (long)(Ptr)&sendPars) == 0L);
-    CHECK(sendPars.proc == (OMSReadHook2)oms_tx_send);
+    CHECK(sendPars.proc == g_oms.sendUpp);      /* the UPP, not a raw fn */
     CHECK(sendPars.paramD0 == (1L << 8));           /* (iface<<8)|cable */
     CHECK(sendPars.paramD1 == 0L);
 }
@@ -1181,7 +1240,7 @@ static void test_send_hook(void)
     pkt.flags = omsNoCont;
     pkt.len = 1u;
     pkt.data[0] = 0xF8u;
-    sendPars.proc(&pkt, sendPars.paramD0);
+    CallOMSReadHook2(sendPars.proc, &pkt, sendPars.paramD0);
     CHECK(g_oms.txConverted == 1ul);
     CHECK(g_oms.txDropped == 1ul);
 
@@ -1198,7 +1257,7 @@ static void test_send_hook(void)
     pkt.data[1] = 0x3Cu;
     pkt.data[2] = 0x40u;
     pkt.data[3] = 0u;
-    sendPars.proc(&pkt, sendPars.paramD0);
+    CallOMSReadHook2(sendPars.proc, &pkt, sendPars.paramD0);
 
     CHECK(gTxCapturedCount == 1u);
     CHECK(gTxCaptured[0].portCode == (1u << 8));
@@ -1212,7 +1271,7 @@ static void test_send_hook(void)
     pkt.len = 2u;
     pkt.data[0] = 0xC0u;
     pkt.data[1] = 0x05u;
-    sendPars.proc(&pkt, sendPars.paramD0);
+    CallOMSReadHook2(sendPars.proc, &pkt, sendPars.paramD0);
     CHECK(gTxCapturedCount == 2u);
     CHECK(gTxCaptured[1].pkt[0] == 0x0Du);
     CHECK(gTxCaptured[1].pkt[1] == 0xC0u);
@@ -1221,7 +1280,7 @@ static void test_send_hook(void)
 
     /* 4-byte non-SysEx packet is malformed: dropped, counted. */
     pkt.len = 4u;
-    sendPars.proc(&pkt, sendPars.paramD0);
+    CallOMSReadHook2(sendPars.proc, &pkt, sendPars.paramD0);
     CHECK(gTxCapturedCount == 2u);
     CHECK(g_oms.txMalformed == 1ul);
 }
@@ -1251,20 +1310,20 @@ static void test_send_hook_sysex_chunks(void)
     pkt.data[1] = 0x7Eu;
     pkt.data[2] = 0x7Fu;
     pkt.data[3] = 0x00u;
-    sendPars.proc(&pkt, sendPars.paramD0);      /* -> 0x4 [F0 7E 7F] */
+    CallOMSReadHook2(sendPars.proc, &pkt, sendPars.paramD0); /* -> 0x4 [F0 7E 7F] */
 
     pkt.flags = omsMidCont;
     pkt.len = 3u;
     pkt.data[0] = 0x01u;
     pkt.data[1] = 0x02u;
     pkt.data[2] = 0x03u;
-    sendPars.proc(&pkt, sendPars.paramD0);      /* -> 0x4 [00 01 02] */
+    CallOMSReadHook2(sendPars.proc, &pkt, sendPars.paramD0); /* -> 0x4 [00 01 02] */
 
     pkt.flags = omsEndCont;
     pkt.len = 2u;
     pkt.data[0] = 0x04u;
     pkt.data[1] = 0xF7u;
-    sendPars.proc(&pkt, sendPars.paramD0);      /* -> 0x8 [03 04 F7] */
+    CallOMSReadHook2(sendPars.proc, &pkt, sendPars.paramD0); /* -> 0x8 [03 04 F7] */
 
     CHECK(gTxCapturedCount == 3u);
     CHECK(gTxCaptured[0].portCode == ((1u << 8) | 2u));
@@ -1288,7 +1347,7 @@ static void test_send_hook_sysex_chunks(void)
     pkt.data[1] = 0x7Eu;
     pkt.data[2] = 0x7Fu;
     pkt.data[3] = 0xF7u;
-    sendPars.proc(&pkt, sendPars.paramD0);
+    CallOMSReadHook2(sendPars.proc, &pkt, sendPars.paramD0);
     CHECK(gTxCapturedCount == 5u);
     CHECK(gTxCaptured[3].pkt[0] == 0x24u);      /* cable 2, CIN 0x4 */
     CHECK(gTxCaptured[3].pkt[1] == 0xF0u);
@@ -1299,12 +1358,58 @@ static void test_send_hook_sysex_chunks(void)
     CHECK(g_oms.txConverted == 5ul);
 }
 
+/* The send proc is a RoutineDescriptor (UPP), not a raw function: built
+ * once at omdvInit via NewOMSReadHook2 -> NewRoutineDescriptor (the
+ * authentic OMSUPPs.h constructor), handed out unchanged by
+ * omdvGetPortSendProc, released at omdvDispose. */
+static void test_send_proc_is_upp(void)
+{
+    OMSPortID portID;
+    OMSSendParams sendPars;
+
+    mock_setup(1u);
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(gNewRDCalls == 1);
+    CHECK(g_oms.sendUpp != NULL);
+    CHECK(gLastRDProc == (ProcPtr)oms_tx_send);
+    CHECK(gLastRDProcInfo == uppOMSReadHook2Info);
+    CHECK(gLastRDISA == kPowerPCISA);    /* GetCurrentArchitecture on G4 */
+
+    portID.driverID = kUSBMIDI9OMSDriverSignature;
+    portID.whichInterface = 1;
+    portID.whichPort = 0;
+    CHECK(oms_driver_main(omdvGetPortSendProc, (long)(Ptr)&portID,
+                          (long)(Ptr)&sendPars) == 0L);
+    CHECK(sendPars.proc == g_oms.sendUpp);   /* the UPP, not a raw fn */
+    CHECK(gNewRDCalls == 1);                 /* no per-call allocation */
+
+    CHECK(oms_driver_main(omdvDispose, 0L, 0L) == 0L);
+    CHECK(gDisposeRDCalls == 1);
+    CHECK(g_oms.sendUpp == NULL);
+}
+
+/* Repeated omdvInit must not leak RoutineDescriptors: the old UPP is
+ * disposed before the new one is created. */
+static void test_upp_reinit_recreates(void)
+{
+    mock_setup(1u);
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(gNewRDCalls == 1);
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);   /* re-init */
+    CHECK(gDisposeRDCalls == 1);      /* old descriptor released */
+    CHECK(gNewRDCalls == 2);          /* exactly one alive at a time */
+    CHECK(oms_driver_main(omdvDispose, 0L, 0L) == 0L);
+    CHECK(gDisposeRDCalls == 2);
+}
+
 /* ---- runner ---------------------------------------------------------- */
 
 int test_oms_driver_run(void)
 {
     g_failures = 0;
     test_connid_signature_guard();
+    test_send_proc_is_upp();
+    test_upp_reinit_recreates();
     test_init_locate();
     test_init_no_driver();
     test_init_twice();

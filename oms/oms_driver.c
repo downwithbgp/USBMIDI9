@@ -290,12 +290,29 @@ static OSErr oms_init(OMSFile *file)
     (void)file;                         /* driver location; not needed */
 
     /* Re-entry guard: a second init must remove the first notification
-     * (the token lives in notifPb; zeroing first would leak it). */
+     * (the token lives in notifPb; zeroing first would leak it) and
+     * release the send-proc RoutineDescriptor (oms_zero would drop the
+     * pointer; dispose it before it is lost). */
     if (g_oms.notifierInstalled) {
         (void)USBRemoveDeviceNotification(g_oms.notifPb.token);
         g_oms.notifierInstalled = 0u;
     }
+    if (g_oms.sendUpp != NULL) {
+        DisposeRoutineDescriptor(g_oms.sendUpp);
+        g_oms.sendUpp = NULL;
+    }
     oms_zero(&g_oms, sizeof(g_oms));
+
+    /* PPC: build the send-proc RoutineDescriptor once per init
+     * (NewOMSReadHook2 -> NewRoutineDescriptor, the authentic OMSUPPs.h
+     * constructor; it may allocate, so this is task time, never
+     * omdvGetPortSendProc). The generated OMSUPPs.h ships no Dispose
+     * wrapper; the re-entry guard above and omdvDispose release the
+     * descriptor with the underlying Mixed Mode Manager call
+     * (DisposeRoutineDescriptor, UI 3.3.2) so repeated omdvInit never
+     * leaks. omdvGetPortSendProc hands this UPP out and OMS invokes it
+     * through CallOMSReadHook2. */
+    g_oms.sendUpp = NewOMSReadHook2(oms_tx_send);
 
     /* Install the device notification first: the USB Manager may call
      * back synchronously for an already-attached device, and the
@@ -307,7 +324,10 @@ static OSErr oms_init(OMSFile *file)
                                            StorageClassShim.c sample
                                            leaves it unset */
     g_oms.notifPb.usbDeviceNotification = kNotifyAnyEvent;
-    g_oms.notifPb.reserved1 = 0u;
+    /* reserved1 is UInt8[1] (authentic USB.h 1.4.1) — an array, not a
+     * scalar: it cannot be assigned, needs no explicit initialization
+     * (oms_zero above already cleared it), and Apple's
+     * StorageClassShim.c sample does not touch it either. */
     g_oms.notifPb.usbDeviceRef = kNoDeviceRef;
     g_oms.notifPb.usbClass = kOmsInterfaceClass;
     g_oms.notifPb.usbSubClass = kOmsInterfaceSubClass;
@@ -366,6 +386,12 @@ static OSErr oms_dispose(void)
          * fragment unloads. */
         (void)USBRemoveDeviceNotification(g_oms.notifPb.token);
         g_oms.notifierInstalled = 0u;
+    }
+    if (g_oms.sendUpp != NULL) {
+        /* Release the send-proc RoutineDescriptor (the counterpart of
+         * NewRoutineDescriptor; the fragment is going away). */
+        DisposeRoutineDescriptor(g_oms.sendUpp);
+        g_oms.sendUpp = NULL;
     }
     oms_zero(&g_oms, sizeof(g_oms));
     return 0;
@@ -503,11 +529,13 @@ static OSErr oms_get_port_send_proc(OMSPortID *portID, OMSSendParams *sendPars)
         return 0;
     }
     /* Spec: return a proc which will send an OMSPacket to the port;
-     * compat >= 1: an OMSReadHook2; paramD0 is passed as the
-     * readHookRefCon; the low word of paramD1 is passed in the
-     * packet's appConnRefCon. The proc may be called at interrupt
-     * level. */
-    sendPars->proc = (OMSReadHook2)oms_tx_send;
+     * compat >= 1: an OMSReadHook2. proc is the RoutineDescriptor built
+     * at omdvInit (NewOMSReadHook2; the authentic OMSSendParams field
+     * type is OMSReadHook2UPP) — OMS invokes it via CallOMSReadHook2.
+     * paramD0 is passed as the readHookRefCon; the low word of paramD1
+     * is passed in the packet's appConnRefCon. The proc may be called
+     * at interrupt level. */
+    sendPars->proc = g_oms.sendUpp;
     sendPars->paramD0 = (long)((ifaceNo << 8) | cable);
     sendPars->paramD1 = 0L;
     return 0;
