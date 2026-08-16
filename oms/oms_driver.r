@@ -14,9 +14,12 @@
  * target, Linker: None, Make 0 errors — no 68K linker/main workaround
  * required). The MacOS Merge / Project Type = Resource File container
  * mechanism also PASSED (real "USBMIDI9 OMS Driver" with 'OMdi' 128,
- * 'SICN' 128, 'vers' 1 in ResEdit). Only packaging change remaining:
- * add 'OMdv' 128 via Rez read from OMdvData (see docs/g4-handoff.md;
- * oms/omdv.r + tools/omdvdata.c prepared in the repo).
+ * 'SICN' 128, 'vers' 1 in ResEdit). The driver's PPC code resource is
+ * carried as 'PPCC' 1 = the raw Target-A PEF (see oms/ppcc.r and
+ * docs/g4-handoff.md) — the authenticated native-PPC carrier (OMS 2.3.8
+ * loads 'PPCC' codeResID first and materializes the fragment via
+ * GetDiskFragment; the OMdv path is the 68K fallback and must NOT hold
+ * a PEF).
  *
  * The authentic Universal Interfaces 3.3.2 Rez preamble is included so
  * every standard resource template/constant comes from Apple's headers
@@ -51,11 +54,17 @@
  *                optional; omitted in v0.1 to keep the resource small).
  *   'BNDL'/'FREF' — Finder bundle (optional; omitted in v0.1).
  *
- * The 'OMdv' 128 CODE resource is NOT declared here: it is the PEF
- * container produced at link time (the Roland SC-8850 'OMdv' resource
- * contains "Joy!peffpwpc" at offset 4 after a 4-byte length header —
- * format reference). Exact CodeWarrior construction steps are in the G4
- * handoff (docs/g4-handoff.md).
+ * The 'PPCC' 1 CODE resource is NOT declared here: it is the raw
+ * Target-A PEF imported by Rez from the built shared library (see
+ * oms/ppcc.r: `read 'PPCC' (1) "::USBMIDI9_OMS";`). The logical
+ * resource payload is the PEF container itself — 'Joy!peffpwpc' at
+ * byte 0, NO length prefix: the 4-byte length seen at the start of
+ * resource records in the authentic forks is the resource fork's own
+ * record framing (the Resource Manager stores [length][data] and
+ * Get1Resource returns only the data). The earlier "SC-8850 OMdv =
+ * 4-byte length + PEF" reading was that framing, misread as payload.
+ * Exact CodeWarrior construction steps are in the G4 handoff
+ * (docs/g4-handoff.md).
  */
 
 #include "Types.r"
@@ -79,7 +88,11 @@ resource 'OMdi' (128) {
     false,                  /* xxisSmart */
     false,                  /* hasMenuOrWindows */
     0,                      /* xxportNumM */
-    0,                      /* xxportNumB */
+    1,                      /* xxportNumB: codeResID for the 'PPCC' lookup
+                               (OMS 2.3.8 loadCode pref=2 = Get1Resource
+                               ('PPCC', word at +6)). 1 = the authentic
+                               OMS Time Manager PPCC id; the 'PPCC' 1
+                               resource in oms/ppcc.r must match. */
     0x00,                   /* flags: 0 (loaded only when devices owned) */
     0x01,                   /* driverCompatibilityLevel: 1 (OMS 2.0+) */
     "000000000000"          /* reservedFlags[6] */

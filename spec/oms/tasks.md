@@ -28,7 +28,8 @@ Status: research gate PASSED (OMS); FreeMIDI partial. Spec review pending.
 3. **oms/ shim (commit 3)**
    - `oms/oms_driver.h`, `oms/oms_driver.c` (main + all omdv* messages),
      `oms/oms_rx.c`, `oms/oms_tx.c`, `oms/oms_driver.r` (Rez source: OMdi 128,
-     SICN/ICN#/icl4/icl8, BNDL/FREF, vers; OMdv 128 documented).
+     SICN/ICN#/icl4/icl8, BNDL/FREF, vers), `oms/ppcc.r` (PPCC 1 = raw PEF
+     import).
    - `host-check/`: add OMS stub headers (OMS.h subset with ONLY the
      verified types/constants used + citations; OMSDriver.h subset; OMSTimer
      subset) — mirroring the existing USB stub style.

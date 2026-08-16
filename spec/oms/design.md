@@ -103,9 +103,10 @@ just the two stream adapters the clients need.
   inspected 2.3.8 driver set; flags 0; `driverCompatibilityLevel` 1),
   `'SICN'` 128 (pairs, per the Spec) + `'ICN#'`/`'icl8'`/`'icl4'` (present in
   the verified Roland SC-8850 driver and the 2.3.8 MIDIPort 32 driver — cited),
-  `'BNDL'`/`'FREF'`, `'vers'`. The `'OMdv'` 128 code resource is the PEF
-  container produced at link time (CodeWarrior; Roland driver = format
-  reference); exact construction steps go in the G4 handoff.
+  `'BNDL'`/`'FREF'`, `'vers'`. The `'PPCC'` 1 code resource is the raw
+  Target-A PEF container produced at link time (CodeWarrior; authentic OMS
+  Time Manager PPCC 1 = format reference); exact construction steps go in
+  the G4 handoff.
 - `oms/oms_rx.c` — receive path: drain `dequeueBytes`, run `um9_rx_*`,
   format `OMSMIDIPacket` (flags continuation bits; `len` = data bytes only),
   deliver via `OMSReceivedFromPort(pkt, ioRefNum)`.

@@ -3,9 +3,10 @@
  *
  * This component is an OMS hardware driver for the USBMIDI9 transport:
  * a file of type 'OMdv' (creator 'USM9') living in System Folder:OMS
- * Folder, whose 'OMdv' 128 code resource (a PEF container) implements the
- * OMS driver contract (OMSDriver.h / the OMS Programming Interface spec,
- * Mar 1995, "OMS Drivers" chapter — see docs/research.md "OMS" and
+ * Folder, whose 'PPCC' 1 code resource (the raw Target-A PEF container;
+ * see oms/ppcc.r + docs/g4-handoff.md) implements the OMS driver
+ * contract (OMSDriver.h / the OMS Programming Interface spec, Mar 1995,
+ * "OMS Drivers" chapter — see docs/research.md "OMS" and
  * ~/research/oms/PROVENANCE.md).
  *
  * The shim contains NO USB data-path code: it consumes the

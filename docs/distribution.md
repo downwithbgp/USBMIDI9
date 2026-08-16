@@ -29,7 +29,7 @@ Components (v0.1 — FreeMIDI driver NOT included; it is research-only):
 | Component | File type | Creator | Destination | Notes |
 |---|---|---|---|---|
 | `USBMIDI9` | `'ndrv'` | `'usbd'` | System Folder:Extensions | the USB class driver (existing M1B artifact) |
-| `USBMIDI9 OMS Driver` | `'OMdv'` | `'USM9'` | System Folder:OMS Folder | the OMS shim (M4 source; PEF `'OMdv'` resource built on the G4) |
+| `USBMIDI9 OMS Driver` | `'OMdv'` | `'USM9'` | System Folder:OMS Folder | the OMS shim (M4 source; PEF `'PPCC'` 1 resource built on the G4) |
 | `Read Me` | `'TEXT'` | `'ttxt'` | — (read in place) | period plain-text manual, MacRoman, CR line endings |
 | Documentation/Release Notes | `'TEXT'` | `'ttxt'` | — | developer notes (provenance, known bugs) |
 
@@ -61,10 +61,10 @@ documents — the 2.3.8 "XTC Read Me" is `'TEXT'`/`'ttxt'`).
   must be set after the CodeWarrior build (the build already produces the
   ndrv; the installer/archive step sets metadata).
 - `USBMIDI9 OMS Driver`: data fork empty; resource fork = `'OMdi'` 128 +
-  `'OMdv'` 128 (PEF container) + `'SICN'` 128 + `'vers'` (from
-  `oms/oms_driver.r`, compiled on the G4) + the `'OMdv'` PEF resource
-  (see the G4 handoff). `'BNDL'`/`'FREF'` are optional Finder-bundle
-  resources added on the G4 if a custom icon/name is wanted; the Rez
+  `'PPCC'` 1 (raw PEF container, via `oms/ppcc.r`) + `'SICN'` 128 + `'vers'`
+  (from `oms/oms_driver.r`, compiled on the G4). `'BNDL'`/`'FREF'` are
+  optional Finder-bundle resources added on the G4 if a custom icon/name is
+  wanted; the Rez
   source does not emit them in v0.1. Type `'OMdv'`, creator `'USM9'`.
 - `Read Me` / `Release Notes`: plain text, **MacRoman** encoding, **CR**
   line endings (Classic TextEdit/SimpleText convention), type `'TEXT'`,

@@ -12,8 +12,11 @@ and Probe targets:
 
 ### Target A — USBMIDI9 OMS Driver (the OMS shim)
 
-A **CFM shared library** (PPC) whose **PEF container becomes the `'OMdv'`
-128 code resource** of the OMS driver file.
+A **CFM shared library** (PPC) whose **PEF container becomes the `'PPCC'`
+1 code resource** of the OMS driver file (the authenticated native-PPC
+carrier: OMS 2.3.8 loads `'PPCC'` codeResID first and loads the fragment
+via GetDiskFragment; the `'OMdv'` path is the 68K fallback and must NOT
+hold a PEF).
 
 Sources (already in the tree; compile-checked on Linux):
 
@@ -180,10 +183,11 @@ Code -> Make on the G4). No C source change is required.
 `oms/oms_driver.r` is **NOT part of the OMS PEF target** (Target A
 compiles the C sources only); it is compiled separately here.
 Compile `oms/oms_driver.r` with Rez (CodeWarrior's or MPW's) to produce
-the resource fork: `'OMdi'` 128 (id 0x7F10, flags 0, compat level 1),
-`'SICN'` 128 (keyboard icon + mask), `'vers'` 1. The `'OMdv'` 128 code
-resource is the PEF container from Target A — add it to the resource fork
-as a data resource (see "The 'OMdv' resource" below).
+the resource fork: `'OMdi'` 128 (id 0x7F10, xxportNumB = 1 = the
+'PPCC' codeResID, flags 0, compat level 1), `'SICN'` 128 (keyboard
+icon + mask), `'vers'` 1. The `'PPCC'` 1 code resource is the raw
+Target-A PEF imported by `oms/ppcc.r` — add it to the resource fork as
+a data resource (see "The 'PPCC' 1 resource" below).
 
 **Resource gate (2026-08-16):** `oms/oms_driver.r` now starts with
 `#include "Types.r"` — the authentic Universal Interfaces 3.3.2 Rez
@@ -225,16 +229,19 @@ mechanism is therefore **proven** (Rez output is merged into the target
 output file's resource fork; the panel's **File Name / Creator / Type /
 Copy Resources / Skip Resource Types** fields control the artifact).
 
-The **only remaining packaging change** is adding `'OMdv'` 128 via
-Rez `read` from `OMdvData` (see below). Final acceptance:
+The **remaining packaging change** is adding `'PPCC'` 1 via
+Rez `read` from the Target-A PEF (see below). Final acceptance:
 
-1. `'OMdv'` 128 present, imported byte-for-byte from `OMdvData`
-   (Target-A PEF + 4-byte length header).
-2. MacOS Merge must **not** skip resource type `OMdv` (review the Skip
+1. `'PPCC'` 1 present, imported byte-for-byte from the Target-A PEF
+   (raw PEF container; **no** 4-byte length prefix — the length seen at
+   the start of resource records in authentic forks is the resource
+   fork's own record framing, not payload).
+2. MacOS Merge must **not** skip resource type `PPCC` (review the Skip
    Resource Types list on the MacOS Merge panel; `OMdi`/`SICN`/`vers`
    must not be skipped either).
-3. ResEdit inspection requires **exactly**: `OMdi` 128, `OMdv` 128,
-   `SICN` 128, `vers` 1.
+3. ResEdit inspection requires **exactly**: `OMdi` 128, `PPCC` 1,
+   `SICN` 128, `vers` 1. There must be **no** `OMdv` resource (the old
+   PEF-in-OMdv packaging is disproven).
 4. Do **not** install into System Folder:OMS Folder until step 3
    passes.
 5. Finder type `'OMdv'`, creator `'USM9'` — already set via
@@ -247,112 +254,114 @@ Rez `read` from `OMdvData` (see below). Final acceptance:
 6. Name: `USBMIDI9 OMS Driver` (31 chars max is fine); destination for
    testing: **System Folder:OMS Folder**.
 
-### The 'OMdv' resource
+### The 'PPCC' 1 resource
 
-The Roland SC-8850 OMS driver is the format reference
-(`~/research/oms/sc8850/usboms-x/x/SC8850-USB.rsrc`): its `'OMdv'` code
-resource is a **PEF container** (`Joy!peffpwpc`) preceded by a 4-byte
-length header (`00 00 <len>` big-endian = the PEF container length).
+The OMS 2.3.8 native-PPC carrier is `'PPCC' <codeResID>`, where
+codeResID = `OMSDriverParams.xxportNumB` (the word at +6 of the
+`'OMdi'` 128 data; disassembly-verified: `move.w $6(a0),-(a7); A81F`
+= Get1Resource('PPCC', xxportNumB)). The authentic OMS Time Manager
+component ships `'PPCC'` 1 + `'PROC'` 1; its PPCC logical payload is
+the **raw PEF container** — `Joy!peffpwpc` at byte 0, no length
+prefix (fork record framing `[be32 length][data]` is added by the
+Resource Manager and stripped by Get1Resource; earlier readings of it
+as payload were wrong). Resource attributes of the authentic TM
+'PPCC' 1 = 0x00 (none).
+
 Produce the same shape:
 
 - Build Target A as a PEF container ("shared library" output); the
-  container's exported symbol is `main`.
-- **OMdvData** = 4-byte big-endian PEF length + the **exact** Target-A
-  PEF bytes. Validation (all four must pass):
-  - raw PEF begins with `Joy!peffpwpc`
-  - OMdvData size = PEF size + 4
-  - OMdvData[0:4] = big-endian PEF size (`00 00 <len>`; the OMS header
-    is 16-bit, so the PEF must be <= 65535 bytes)
-  - OMdvData[4:16] = `Joy!peffpwpc`
-- **`tools/omdvdata.c`** (prepared in the repo, host-tested by
-  `make check-omdvdata`) builds and validates OMdvData from the PEF:
-  `omdvdata <pef-in> [omdvdata-out]`. With one argument it writes
-  `OMdvData` next to the input (classic Mac `:` and Unix `/` path
-  separators both handled). Stdio only — compiles on the G4 with
-  CodeWarrior/MSL as a console app (drag the PEF onto its icon), or
-  with MPW's C compiler, or on Linux. Copy the PEF to Linux and run it
-  there if you prefer — the output is byte-identical either way.
-- **`oms/omdv.r`** (prepared in the repo) adds the resource with
-  **Rez's `read` statement**: `read 'OMdv' (128) "OMdvData";` — `read`
-  takes the file's entire contents verbatim as the resource data (Rez
-  language reference). Add `oms/omdv.r` to the SAME MacOS Merge
-  resource target as `oms_driver.r`. Keep `OMdvData` in the project
-  folder (Rez resolves relative paths from its working directory), or
-  use a full path in the file.
-- Ensure **MacOS Merge does not skip resource type `OMdv`**: open the
+  container's main symbol is `main` (exported via
+  `codewarrior/USBMIDI9_OMS.exp`; the loader-info string area of the
+  2026-08-16 build contains `main` as its main-symbol string).
+- **`oms/ppcc.r`** (in the repo) adds the resource with **Rez's `read`
+  statement**: `read 'PPCC' (1) "::USBMIDI9_OMS";` — `read` takes the
+  file's data fork verbatim as the resource data (Rez language
+  reference), so the PEF is embedded byte-for-byte with **no length
+  prefix**. The path is relative to Rez's working directory (the
+  resource project folder `USBMIDI9:USBMIDI9 OMS Resources:`), so
+  `::USBMIDI9_OMS` = `USBMIDI9:USBMIDI9_OMS` = the Target-A PEF
+  (no copy needed). Fallback if CW Rez rejects `::`: copy the PEF into
+  the project folder and use `read 'PPCC' (1) "USBMIDI9_OMS";`.
+- Add `oms/ppcc.r` to the SAME MacOS Merge resource target as
+  `oms_driver.r`.
+- Ensure **MacOS Merge does not skip resource type `PPCC`**: open the
   MacOS Merge panel (Target Settings) and review the **Skip Resource
-  Types** list; remove `OMdv` (and `OMdi`/`SICN`/`vers`) if present.
+  Types** list; remove `PPCC` (and `OMdi`/`SICN`/`vers`) if present.
+- There is **no `'OMdv'` resource** in the driver file (the PEF-in-OMdv
+  packaging — `oms/omdv.r`, `tools/omdvdata.c` — was removed from the
+  repo as disproven: the OMdv path is the 68K fallback and the 4-byte
+  prefix it added was fork framing, not payload).
 - Fallback (verified by construction): a small Resource Manager tool on
-  the G4 — `FSpCreateResFile` / `AddResource` / `UpdateResFile` with the
-  header+PEF data — or ResEdit (manual resource add; no practical raw
-  byte import).
-- NOT the CW "PPC Code Resource" project type (ResType `'OMdv'`, ResID
-  128, Header Type None): documented in "Targeting Mac OS" ch. 6, but it
-  builds code from source, cannot import an existing PEF byte-for-byte,
-  and emits no OMS 4-byte length header. Likewise no 68K Code Resource
-  linker target.
-- Validate the result against the Roland file before installing
-  (hexdump offset 0: `00 00 <len> 4A 6F 79 21`).
+  the G4 — `FSpCreateResFile` / `AddResource` / `UpdateResFile` with
+  the **raw PEF bytes** (no prefix) — or ResEdit (manual resource add;
+  no practical raw byte import).
+- NOT the CW "PPC Code Resource" project type: it builds code from
+  source, cannot import an existing PEF byte-for-byte, and emits no
+  `'PPCC'` resource. Likewise no 68K Code Resource linker target.
+- Validate the result against the authentic Time Manager before
+  installing (hexdump of the PPCC 1 resource data, offset 0:
+  `4A 6F 79 21 70 65 66 66` = "Joy!peffpwpc" — NOT `00 00 <len>`).
 
-### Exact G4 procedure — add 'OMdv' 128
+### Exact G4 procedure — add 'PPCC' 1
 
-Complete remaining packaging work. Files needed: `oms/omdv.r` and
-`tools/omdvdata.c` (both in the repo), the Target-A PEF output file,
-and ResEdit.
+Complete remaining packaging work. Files needed: `oms/ppcc.r` (in the
+repo), the Target-A PEF output file (`USBMIDI9:USBMIDI9_OMS`), and
+ResEdit.
 
-1. **Get the Target-A PEF.** Build Target A (the PPC PEF "shared
-   library" target) as already done; note the output file's path.
-2. **Build the omdvdata tool** (one C file, stdio only, no Toolbox
-   calls):
-   - CodeWarrior: **File > New... > Project...** and pick the MacOS
-     C/C++ app (console) template — the one that links MSL with SIOUX
-     (a "Console" template if present). Name it `omdvdata`; add
-     `tools/omdvdata.c` (**Project > Add Files...**); **Make**.
-   - Or, if MPW with a C compiler is available, compile it there:
-     `C -o omdvdata omdvdata.c`.
-   - Or copy the PEF to the Linux box, run
-     `cc -O2 -o omdvdata tools/omdvdata.c && ./omdvdata <pef>` there,
-     and copy the resulting `OMdvData` back — byte-identical output.
-3. **Produce OMdvData.** Run the tool on the PEF — with one argument
-   (drag the PEF onto the `omdvdata` app icon; Finder passes it as the
-   argument) it writes `OMdvData` next to the PEF; the console shows
-   the four validations and all must say OK. Press Return in the
-   console window to quit. Confirm `OMdvData` is in the project folder.
-4. **Add `oms/omdv.r` to the resource target.** Select the resource
+1. **Build the Target-A PEF.** Build Target A (the PPC PEF "shared
+   library" target) as already done; the output file is
+   `USBMIDI9:USBMIDI9_OMS` (its data fork = the PEF container, 9501
+   bytes as of the 2026-08-16 build). It must stay at that location —
+   `oms/ppcc.r` reads it via the relative path `::USBMIDI9_OMS` from
+   the resource project folder.
+2. **Remove the obsolete OMdvData artifacts from the resource
+   project** (left over from the disproven PEF-in-OMdv packaging):
+   - Remove `oms/omdv.r` from the resource target (Project > Remove) —
+     the file no longer exists in the repo, so a stale member breaks
+     the next Make.
+   - Delete the `USBMIDI9:omdvdata:` CodeWarrior project folder, the
+     `USBMIDI9 OMS Resources:OMdvData` file, and
+     `USBMIDI9 OMS Resources:omdvdata.out` — all untracked leftovers.
+3. **Add `oms/ppcc.r` to the resource target.** Select the resource
    target (the MacOS Merge one) in the project window, then **Project >
-   Add Files...**, choose `oms/omdv.r`, **Add**. (It must NOT be a
+   Add Files...**, choose `oms/ppcc.r`, **Add**. (It must NOT be a
    member of Target A.)
-5. **Check the MacOS Merge panel.** **Project > Target Settings...**
+4. **Check the MacOS Merge panel.** **Project > Target Settings...**
    (or double-click the target), MacOS Merge (68K Linker) panel:
    - Project Type = **Resource File**
    - File Name = `USBMIDI9 OMS Driver`; Creator = `USM9`; Type = `OMdv`
    - **Copy Resources: checked**
-   - **Skip Resource Types: must NOT contain `OMdv`** (nor `OMdi`,
+   - **Skip Resource Types: must NOT contain `PPCC`** (nor `OMdi`,
      `SICN`, `vers`) — remove them if present.
-6. **Make** (**Project > Make**, ⌘K). Rez compiles `oms/omdv.r` and the
-   `read` statement embeds `OMdvData` verbatim as `'OMdv'` 128.
-   - If Rez cannot find `OMdvData`: the Rez working directory is not
-     the project folder — move `OMdvData` there, or edit `oms/omdv.r`
-     to a full path.
-7. **ResEdit inspection (required before install).** Open the output
+5. **Make** (**Project > Make**, ⌘K). Rez compiles `oms/ppcc.r` and the
+   `read` statement embeds the PEF data fork verbatim as `'PPCC'` 1.
+   - If Rez cannot find `USBMIDI9_OMS`: the Rez working directory is
+     not the resource project folder, or the `::` path is rejected —
+     copy `USBMIDI9_OMS` into the project folder and change
+     `oms/ppcc.r` to `read 'PPCC' (1) "USBMIDI9_OMS";` (or use the
+     absolute path `USBMIDI9:USBMIDI9_OMS`).
+6. **ResEdit inspection (required before install).** Open the output
    `USBMIDI9 OMS Driver` in ResEdit. The resource list must show
    **exactly**:
    - `OMdi` 128
-   - `OMdv` 128
+   - `PPCC` 1
    - `SICN` 128
    - `vers` 1
-   Optionally double-click `OMdv` 128: first 4 bytes = big-endian PEF
-   size (`00 00 <len>`), bytes 4..15 = `Joy!peffpwpc`, total size = PEF
-   size + 4.
-8. **Install only after step 7 passes:** copy the file into
+   and **no** `OMdv`. Optionally double-click `PPCC` 1: the data must
+   start `4A 6F 79 21 70 65 66 66` = "Joy!peffpwpc" — **no** length
+   prefix — total size = the PEF size (9501 bytes for the 2026-08-16
+   build).
+7. **Install only after step 6 passes:** copy the file into
    **System Folder:OMS Folder**, then run the runtime gates (probe
    regression, OMS driver loads, OMS receives MIDI).
 
 If OMS 2.3.8 does not load the driver, first check: file type/creator,
-resource IDs (128), the `'OMdi'` id/flags bytes, and the PEF header shape
-against the Roland reference. The 'OMdi'/'OMdv' loading mechanism itself is
-verified (the OMS INIT references these resource types; real 2.3.8 and
-Roland drivers use them).
+resource IDs (128/1), the `'OMdi'` id/xxportNumB bytes, and the PPCC 1
+data shape (`4A 6F 79 21` = "Joy!peffpwpc" at byte 0, no length
+prefix) against the authentic OMS Time Manager PPCC 1. The
+'OMdi'/'PPCC' loading mechanism itself is verified by disassembly of
+the OMS 2.3.8 library (loadCode pref=2 = Get1Resource('PPCC',
+xxportNumB), then materialize + GetDiskFragment).
 
 ## Gate order (test on the G4, in this order)
 
@@ -363,13 +372,14 @@ Roland drivers use them).
    (Linker: None, 0 errors), and the **MacOS Merge / Project Type =
    Resource File** container mechanism PASS (real file with `'OMdi'`
    128, `'SICN'` 128, `'vers'` 1 verified in ResEdit). Remaining —
-   the only packaging change: add `'OMdv'` 128 via Rez `read` from
-   `OMdvData` (`tools/omdvdata.c` builds+validates it; `oms/omdv.r`
-   does the read; both prepared in the repo), ensure MacOS Merge does
-   not skip `OMdv`, then ResEdit must show **exactly** `OMdi` 128 /
-   `OMdv` 128 / `SICN` 128 / `vers` 1. Do not install into System
-   Folder:OMS Folder until that inspection passes. Then continue with
-   the runtime gates:
+   the packaging change: add `'PPCC'` 1 via Rez `read` from the
+   Target-A PEF (`oms/ppcc.r` does the read; `::USBMIDI9_OMS` resolves
+   to `USBMIDI9:USBMIDI9_OMS`), remove the stale `oms/omdv.r` member
+   and the untracked OMdvData/omdvdata artifacts, ensure MacOS Merge
+   does not skip `PPCC`, then ResEdit must show **exactly** `OMdi`
+   128 / `PPCC` 1 / `SICN` 128 / `vers` 1 (and **no** `OMdv`). Do not
+   install into System Folder:OMS Folder until that inspection passes.
+   Then continue with the runtime gates:
 2. **Probe regression**: the existing Probe still enumerates and receives
    Keystation packets (nothing broke — the Probe's 0x0001 minimum accepts
    the v0x0002 driver).
@@ -445,5 +455,6 @@ The `-Dmain` host-check naming is Linux-only, irrelevant on the G4.
 - `~/research/oms/oms238c/` — extracted OMS 2.3.8 (component inventory,
   driver resource forks, the INIT).
 - `~/research/oms/sc8850/` — Roland SC-8850 OMS/FreeMIDI packages (the
-  `'OMdv'` PEF format reference; the `'DDef'` FreeMIDI driver reference).
+  `'XCOF'` 10000 raw-PEF resource reference; the `'DDef'` FreeMIDI
+  driver reference).
 - `~/research/oms/fm145x/` — FreeMIDI 1.45 (DDef/IDvr references).

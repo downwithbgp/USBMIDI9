@@ -261,9 +261,10 @@ authentic mechanisms, now implemented:
 
 **Remaining OMS unknowns** (documented, not guessed): how OMS loads the
 shlb-form USB Manager (loading contract unverified — we use the fully
-verified `'OMdv'` form); the exact header of the PEF-in-`'OMdv'` resource
-(inferred "0000 <len>" layout; validated on the G4 against the Roland
-binary); the USB Manager notification parameter-block `pbVersion` value
+verified `'OMdv'` form); the exact loader-info header field layout of CW
+5.3 PEFs (mainSymbolOffset position; the `main` string is verified in
+the loader-info string area — see spec/ppcc-packaging); the USB Manager
+notification parameter-block `pbVersion` value
 (Rev 26 defines no constant; Apple's StorageClassShim.c sample leaves it
 unset — the shim passes 0, to be confirmed on the G4); the
 `pb->usbDeviceRef` semantics for INTERFACE notification events (the

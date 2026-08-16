@@ -73,9 +73,9 @@ uses and Opcode's own OMS USB Manager uses); see `docs/research.md`.
 ## OMS and FreeMIDI (`oms/`, `freemidi/`)
 
 `oms/` is the OMS driver shim: a classic `'OMdv'` OMS driver (creator
-`'USM9'`, `'OMdi'` 128 params, `'OMdv'` 128 PEF code resource) consuming
-`USBMIDI9DispatchTable` + `core/midi_stream`; source gate complete, G4
-hardware gate pending. It contains no USB data-path code.
+`'USM9'`, `'OMdi'` 128 params, `'PPCC'` 1 raw-PEF code resource)
+consuming `USBMIDI9DispatchTable` + `core/midi_stream`; source gate
+complete, G4 hardware gate pending. It contains no USB data-path code.
 
 `freemidi/` remains reserved: the FreeMIDI driver file format is verified
 (`'DDef'`/`'IDvr'`, `'Code'`/`'DDef'` resources) but the driver message
