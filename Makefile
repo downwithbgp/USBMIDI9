@@ -20,9 +20,9 @@ CFLAGS  ?= -std=c89 -Wall -Wextra -Wpedantic -Werror -O2 -I.
 BUILD   := build
 SAN     := build-san
 
-CORE_SRCS := core/packets.c core/descriptors.c core/ports.c
+CORE_SRCS := core/packets.c core/descriptors.c core/ports.c core/midi_stream.c
 RING_SRCS := classic/ring.c
-TEST_SRCS := tests/test_main.c tests/test_packets.c tests/test_descriptors.c tests/test_ring.c tests/test_machine.c tests/test_probe.c
+TEST_SRCS := tests/test_main.c tests/test_packets.c tests/test_descriptors.c tests/test_ring.c tests/test_machine.c tests/test_probe.c tests/test_midi_stream.c
 
 CORE_OBJS := $(CORE_SRCS:%.c=$(BUILD)/%.o)
 RING_OBJS := $(RING_SRCS:%.c=$(BUILD)/%.o)
