@@ -269,7 +269,7 @@ unset — the shim passes 0, to be confirmed on the G4); the
 `pb->usbDeviceRef` semantics for INTERFACE notification events (the
 event VALUES are disassembly-verified; the ref is expected to be the
 containing device's ref — hardware-verify on the G4, see
-docs/g4-handoff.md gate 5).
+docs/g4-handoff.md gate 6).
 
 ## FreeMIDI
 

@@ -15,9 +15,9 @@
  * The authentic Universal Interfaces 3.3.2 Rez preamble is included so
  * every standard resource template/constant comes from Apple's headers
  * — nothing hand-declared:
- *   'vers' template  — MacTypes.r (via Types.r); stage constants
- *                      development/alpha/beta/final (+ release) are the
- *                      template's own defaults
+ *   'vers' template  — MacTypes.r (via Types.r); the stage constants
+ *                      development/alpha/beta/final (+ release) are
+ *                      declared in that template
  *   'SICN' template  — Icons.r (via Types.r): an array of 32-byte hex
  *                      strings, one per 16x16 bitmap
  *   verUS (region)   — Script.r (via IntlResources.r, via Types.r)
