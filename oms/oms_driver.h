@@ -10,9 +10,21 @@
  *
  * The shim contains NO USB data-path code: it consumes the
  * USBMIDI9DispatchTable (enumeration + dequeue) exactly like the Probe.
- * The only USB-adjacent call is the driver-lookup pattern
- * USBGetNextDeviceByClass + FindSymbol, which is precisely what Opcode's
- * own OMS 2.3.8 "OMS USB Manager" does (verified PEF import list).
+ * The USB-adjacent calls are the driver-lookup pattern
+ * USBGetNextDeviceByClass + FindSymbol at lifecycle transitions and the
+ * USB Manager device-notification API (USBInstallDeviceNotification /
+ * USBRemoveDeviceNotification) — precisely what Opcode's own OMS 2.3.8
+ * "OMS USB Manager" does (verified PEF import list; see
+ * docs/research.md "OMS" and docs/host-check-audit.md).
+ *
+ * Receive scheduling (v0.1 audit correction): there is NO periodic poll
+ * task. The class driver's read completion invokes the shim's event
+ * callback (dispatch table v0x0002 setEventCallback) at interrupt level
+ * right after bytes land in the ring; the callback drains the ring
+ * through dequeueBytes and calls OMSReceivedFromPort (interrupt-level
+ * legal per the OMS Spec). The Notification Manager is NOT used (its
+ * NMInstall/NMRemove are an alert API, not a timer — verified by
+ * disassembly of Opcode's own USB components).
  *
  * Driver identity:
  *   - signature/creator 'USM9'
@@ -30,7 +42,7 @@
 #include <MacErrors.h>
 #include <OMS.h>
 #include <OMSDriver.h>
-#include <Notifications.h>
+#include <USB.h>
 
 #include "usbmidi9_dispatch.h"
 #include "core/midi_stream.h"
@@ -49,13 +61,13 @@
 #define kUSBMIDI9OMSMaxInterfaces   8u
 #define kUSBMIDI9OMSCables          16u
 
-/* Poll period in ticks (1 tick ~ 16.7 ms). The Notification Manager is
- * the verified period precedent: Opcode's OMS USB Manager imports
- * NMInstall/NMRemove. */
-#define kUSBMIDI9OMSPollTicks       1u
-
-/* Bytes dequeued per interface per poll (16 Event Packets). */
+/* Bytes dequeued per interface per event (16 Event Packets). */
 #define kUSBMIDI9OMSDequeueChunk    64u
+
+/* Minimum dispatch table version the shim accepts: it must provide the
+ * v0x0002 setEventCallback entry (the receive push hook). A v1 driver
+ * is rejected but the shim stays alive for replug. */
+#define kUSBMIDI9OMSDispatchMinVersion 0x0002u
 
 /* One cable's port state: OMS receive refnum + the neutral rx stream. */
 struct oms_port {
@@ -77,38 +89,52 @@ struct oms_iface {
 /* The driver's global state (single instance; a CFM fragment owns its
  * data section). */
 struct oms_state {
-    struct USBMIDI9DispatchTable *table;   /* cached; re-located per poll */
+    struct USBMIDI9DispatchTable *table;  /* cached; valid only while the
+                                             class driver fragment is
+                                             loaded (attach/detach) */
+    USBDeviceRef deviceRef;               /* the located driver's device */
     unsigned char midiStarted;
-    unsigned char timerRunning;
+    unsigned char notifierInstalled;      /* USB notification installed */
+    unsigned char callbackRegistered;     /* event callback in the table */
     unsigned short nInterfaces;
-    void *interfaceList;                   /* omdvSetInterfaceList handle;
+    void *interfaceList;                  /* omdvSetInterfaceList handle;
                                               remembered, never touched */
     struct oms_iface ifaces[kUSBMIDI9OMSMaxInterfaces];
-    struct NMRec nmRec;                    /* poll timer record */
+    struct USBDeviceNotificationParameterBlock notifPb;
     unsigned long rxPackets, rxMessages, rxDropped;
     unsigned long txConverted, txDropped, txMalformed;
-    unsigned long relocates;               /* dispatch re-locations */
+    unsigned long relocates;              /* dispatch re-locations */
     unsigned long locateFailures;
+    unsigned long events;                 /* event-callback invocations */
 };
 
 extern struct oms_state g_oms;
 
 /* Locate the USBMIDI9 dispatch table (USBGetNextDeviceByClass +
- * FindSymbol, the Probe's verified pattern). Returns noErr and caches
- * the table, or an error when no USBMIDI9 driver is attached. */
+ * FindSymbol, the Probe's verified pattern) and register the receive
+ * event callback. Called ONLY at lifecycle transitions: omdvInit,
+ * omdvAddDevices, omdvStartMIDI2, and device-add notifications. Returns
+ * noErr and caches the table, or an error when no USBMIDI9 driver is
+ * attached or its table is too old. */
 OSErr oms_locate_dispatch(void);
 
 /* The omdv* message switch (called by `main`). */
 long oms_handle_message(short msg, long par1, long par2);
 
-/* Drain one interface's ring and deliver messages to OMS. Called from
- * the poll task. */
-void oms_rx_drain(unsigned ifaceIndex);
+/* The class driver's event callback (v0x0002 push hook): runs inside
+ * the driver's read completion at (secondary) interrupt level. Drains
+ * the interface's ring and delivers messages to OMS. Must not call any
+ * task-time API and must not re-enter the dispatch table except via
+ * dequeueBytes. */
+void oms_rx_event(UInt32 ifaceIndex, UInt32 refcon);
 
-/* The Notification Manager poll task (periodic; drains all started
- * interfaces and resubmits itself while MIDI is running; pascal on the
- * G4, per the Notifications.h NMProcPtr convention). */
-OMSCALLBACK(void) oms_poll_task(UInt32 nMessage, UInt32 nRefCon);
+/* Drain one interface's ring until empty. `deliver` = 1 hands decoded
+ * messages to OMS; 0 drops them (stale backlog). Called from the event
+ * callback and from attach/startMIDI2. */
+void oms_rx_drain(unsigned ifaceIndex, unsigned deliver);
+
+/* Drain every valid interface until its ring is empty. */
+void oms_rx_drain_all(unsigned deliver);
 
 /* The OMSReadHook2 send proc returned by omdvGetPortSendProc (pascal on
  * the G4, per the OMSDrvUPPs.h convention). */

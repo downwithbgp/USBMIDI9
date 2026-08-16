@@ -6,9 +6,17 @@
  * The shim sources are compiled into this translation unit against the
  * stub headers in classic/host-check/, and every external call the shim
  * makes is intercepted by the mocks below: USBGetNextDeviceByClass,
- * FindSymbol, GetZone/SetZone/SystemZone (dispatch-table lookup),
- * NMInstall/NMRemove (poll timer), OMSReceivedFromPort (input delivery),
- * OMSOpenDriverResFile/OMSCloseDriverResFile.
+ * USBGetDriverConnectionID, FindSymbol, GetZone/SetZone/SystemZone
+ * (dispatch-table lookup), USBInstallDeviceNotification/
+ * USBRemoveDeviceNotification (device lifecycle), OMSReceivedFromPort
+ * (input delivery), OMSOpenDriverResFile/OMSCloseDriverResFile.
+ *
+ * Receive is push-based: data delivery is driven by invoking the event
+ * callback the shim registered through the fake table's
+ * setEventCallback (exactly what the real class driver's read
+ * completion does), NOT by a poll loop. A core regression assertion in
+ * test_receive_path: receiving data performs ZERO
+ * USBGetNextDeviceByClass calls — the per-tick USB walk is gone.
  *
  * The test does NOT define any USL transfer/pipe function (USBBulkRead,
  * USBBulkWrite, USBIntRead, USBConfigureInterface, USBAllocMem, ...):
@@ -28,7 +36,6 @@
 #include <USB.h>
 #include <OMS.h>
 #include <OMSDriver.h>
-#include <Notifications.h>
 
 #include "usbmidi9_dispatch.h"
 #include "core/midi_stream.h"
@@ -64,11 +71,26 @@ static unsigned gMockNInterfaces;
 static int gDriverPresent;              /* USBGetNextDeviceByClass result */
 static int gFindCalls;
 static int gNextDeviceCalls;
-static int gNMInstallCalls;
-static int gNMRemoveCalls;
-static NMProcPtr gInstalledNMProc;
-static unsigned long gInstalledNMRefCon;
-static UInt32 gLastNMInstallEventTime;
+static int gConnIDCalls;                /* USBGetDriverConnectionID */
+static USBDeviceRef gMockDeviceRef;     /* the located device's ref */
+static CFragConnectionID gMockConnID;
+
+/* USB Manager device-notification mock state. */
+static int gNotifInstallCalls;
+static int gNotifRemoveCalls;
+static unsigned char gNotifInstalled;
+static UInt32 gNotifToken;
+static USBDeviceNotificationCallbackProcPtr gInstalledNotifProc;
+static struct USBDeviceNotificationParameterBlock gInstalledPb;
+static UInt16 gInstalledClass;
+static UInt16 gInstalledSubClass;
+static UInt8 gInstalledFilter;
+
+/* The event callback the shim registered via fake_set_event_callback
+ * (the class driver would invoke it from its read completion). */
+static USBMIDI9EventCallbackProcPtr gRegisteredEventCallback;
+static UInt32 gRegisteredEventRefcon;
+static int gSetEventCallbackCalls;
 
 static OMSPacket gCaptured[64];         /* OMSReceivedFromPort captures */
 static short gCapturedRefNum[64];
@@ -86,7 +108,7 @@ static unsigned gAddedCount;
 
 static struct USBMIDI9DispatchTable gFakeTable;
 
-/* --- mock USL / CFM / OMS -------------------------------------------- */
+/* --- mock USL / CFM / USB Manager / OMS ------------------------------ */
 
 OSStatus oms_mock_USBGetNextDeviceByClass(USBDeviceRef *deviceRef,
                                  CFragConnectionID *connID,
@@ -101,11 +123,22 @@ OSStatus oms_mock_USBGetNextDeviceByClass(USBDeviceRef *deviceRef,
         return kUSBNotFound;
     }
     if (*deviceRef == kNoDeviceRef) {
-        *deviceRef = 0x1000u;
-        *connID = 1;
+        *deviceRef = gMockDeviceRef;
+        *connID = gMockConnID;
         return noErr;
     }
     return kUSBNotFound;
+}
+
+OSStatus oms_mock_USBGetDriverConnectionID(USBDeviceRef deviceRef,
+                                           CFragConnectionID *connID)
+{
+    gConnIDCalls++;
+    if (!gDriverPresent || deviceRef != gMockDeviceRef) {
+        return kUSBNotFound;
+    }
+    *connID = gMockConnID;
+    return noErr;
 }
 
 OSStatus oms_mock_FindSymbol(CFragConnectionID connID, const char *symName,
@@ -137,44 +170,29 @@ THz oms_mock_SystemZone(void)
     return (THz)0;
 }
 
-/* Ticks since startup (the shim's poll timer uses an absolute base). */
-UInt32 Ticks(void)
+/* The USB Manager's notification install (Rev 26 Ch 6): the pb is
+ * filled by the caller; result/token come back in the pb; the callback
+ * may fire synchronously during installation. */
+void USBInstallDeviceNotification(USBDeviceNotificationParameterBlock *pb)
 {
-    return 1000u;
+    gNotifInstallCalls++;
+    gInstalledPb = *pb;
+    gInstalledClass = pb->usbClass;
+    gInstalledSubClass = pb->usbSubClass;
+    gInstalledFilter = pb->usbDeviceNotification;
+    gNotifToken++;
+    pb->token = gNotifToken;
+    pb->result = noErr;
+    gInstalledNotifProc = pb->callback;
+    gNotifInstalled = 1u;
 }
 
-/* The shim under test (included below) defines oms_poll_task; the mock
- * NMInstall captures it directly — the real NMRec.nMsg is 32-bit, which
- * cannot hold a host function pointer, but on the 32-bit G4 it does. */
-void oms_poll_task(UInt32 nMessage, UInt32 nRefCon);
-
-OSErr NMInstall(NMRecPtr nmRecPtr)
+OSStatus USBRemoveDeviceNotification(UInt32 token)
 {
-    gNMInstallCalls++;
-    CHECK(nmRecPtr->nMsg != 0u);        /* the shim stored the proc */
-    /* The timer uses an absolute base: Ticks() + period, and re-arms
-     * with a FIXED += period (a relative 1 would fire back-to-back and
-     * the rate would drift). NOTE: this assumes install #2+ is a poll
-     * re-arm within one mock_setup (each test starts MIDI exactly
-     * once); a stop/restart of MIDI would install a fresh absolute
-     * base and fail the else-branch assert. */
-    if (gNMInstallCalls == 1) {
-        CHECK(nmRecPtr->eventTime == (Ticks() + kUSBMIDI9OMSPollTicks));
-    } else {
-        CHECK(nmRecPtr->eventTime
-              == (gLastNMInstallEventTime + kUSBMIDI9OMSPollTicks));
-    }
-    gLastNMInstallEventTime = nmRecPtr->eventTime;
-    gInstalledNMProc = (NMProcPtr)oms_poll_task;
-    gInstalledNMRefCon = nmRecPtr->nRefCon;
-    return noErr;
-}
-
-OSErr NMRemove(NMRecPtr nmRecPtr)
-{
-    (void)nmRecPtr;
-    gNMRemoveCalls++;
-    gInstalledNMProc = NULL;
+    (void)token;
+    gNotifRemoveCalls++;
+    gInstalledNotifProc = NULL;
+    gNotifInstalled = 0u;
     return noErr;
 }
 
@@ -246,6 +264,19 @@ static UInt32 fake_dequeue(UInt32 index, void *buffer, UInt32 maxBytes)
     return n;
 }
 
+static OSStatus fake_set_event_callback(UInt32 index,
+                                        USBMIDI9EventCallbackProcPtr callback,
+                                        UInt32 refcon)
+{
+    if (index >= gMockNInterfaces) {
+        return kUSBNotFound;
+    }
+    gSetEventCallbackCalls++;
+    gRegisteredEventCallback = callback;    /* last registration wins */
+    gRegisteredEventRefcon = refcon;
+    return noErr;
+}
+
 /* --- mock add1device callback ----------------------------------------- */
 
 static OMSDeviceH mock_add1(OMSDevice *device, short devSize)
@@ -269,6 +300,7 @@ static OMSDeviceH mock_add1(OMSDevice *device, short devSize)
 #define SetZone oms_mock_SetZone
 #define SystemZone oms_mock_SystemZone
 #define USBGetNextDeviceByClass oms_mock_USBGetNextDeviceByClass
+#define USBGetDriverConnectionID oms_mock_USBGetDriverConnectionID
 #define FindSymbol oms_mock_FindSymbol
 
 #define main oms_driver_main
@@ -284,12 +316,19 @@ static void mock_setup(unsigned n)
 
     gMockNInterfaces = n;
     gDriverPresent = 1;
+    gMockDeviceRef = 0x1000u;
+    gMockConnID = 1;
     gFindCalls = 0;
     gNextDeviceCalls = 0;
-    gNMInstallCalls = 0;
-    gNMRemoveCalls = 0;
-    gInstalledNMProc = NULL;
-    gLastNMInstallEventTime = 0u;
+    gConnIDCalls = 0;
+    gNotifInstallCalls = 0;
+    gNotifRemoveCalls = 0;
+    gNotifInstalled = 0u;
+    gNotifToken = 0u;
+    gInstalledNotifProc = NULL;
+    gRegisteredEventCallback = NULL;
+    gRegisteredEventRefcon = 0u;
+    gSetEventCallbackCalls = 0;
     gCapturedCount = 0u;
     gTxCapturedCount = 0u;
     gAddedCount = 0u;
@@ -297,6 +336,7 @@ static void mock_setup(unsigned n)
     gFakeTable.enumerateInterfaces = fake_enumerate;
     gFakeTable.getInterfaceInfo = fake_get_info;
     gFakeTable.dequeueBytes = fake_dequeue;
+    gFakeTable.setEventCallback = fake_set_event_callback;
     for (i = 0u; i < MOCK_MAX_IFACES; i++) {
         gMockInfo[i].index = i;
         gMockInfo[i].vendorID = 0x0A4Du;
@@ -322,12 +362,38 @@ static void mock_queue(unsigned iface, const unsigned char *bytes, unsigned n)
     gMockQueueLen[iface] = n;
 }
 
-/* Run one poll (as the Notification Manager would). */
-static void mock_poll(void)
+/* Fire the class driver's push hook for one interface, exactly as the
+ * real driver's read completion does after enqueueing bytes. */
+static void mock_data_arrives(unsigned iface)
 {
-    if (gInstalledNMProc != NULL) {
-        gInstalledNMProc(0u, gInstalledNMRefCon);
+    if (gRegisteredEventCallback != NULL) {
+        gRegisteredEventCallback((UInt32)iface, gRegisteredEventRefcon);
     }
+}
+
+/* Fire a USB Manager device notification (kNotifyAddDevice etc.). */
+static void mock_notify(UInt8 event, USBDeviceRef deviceRef)
+{
+    struct USBDeviceNotificationParameterBlock pb;
+
+    if (gInstalledNotifProc == NULL) {
+        return;
+    }
+    pb.pbLength = (UInt16)sizeof(pb);
+    pb.pbVersion = 0u;
+    pb.usbDeviceNotification = event;
+    pb.reserved1 = 0u;
+    pb.usbDeviceRef = deviceRef;
+    pb.usbClass = 0x01u;
+    pb.usbSubClass = 0x03u;
+    pb.usbProtocol = 0u;
+    pb.usbVendor = 0u;
+    pb.usbProduct = 0u;
+    pb.result = noErr;
+    pb.token = gNotifToken;
+    pb.callback = gInstalledNotifProc;
+    pb.refcon = 0u;
+    gInstalledNotifProc(&pb);
 }
 
 /* Capture seam for the send path. */
@@ -343,6 +409,23 @@ static void tx_capture(unsigned portCode, const unsigned char pkt[4])
     }
 }
 
+/* Standard bring-up: init + add devices + enable port 0 with a refnum. */
+static void mock_start_midi(unsigned refnum)
+{
+    OMSPortID portID;
+
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
+    portID.driverID = kUSBMIDI9OMSDriverSignature;
+    portID.whichInterface = 1;
+    portID.whichPort = 0;
+    CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID,
+                          refnum) == 0L);
+    CHECK(oms_driver_main(omdvStartMIDI, 0L, 0L) == 0L);
+    CHECK(oms_driver_main(omdvStartMIDI2, 0L, 0L) == 0L);
+    CHECK(g_oms.midiStarted == 1u);
+}
+
 /* ---- tests ----------------------------------------------------------- */
 
 static void test_init_locate(void)
@@ -350,34 +433,77 @@ static void test_init_locate(void)
     mock_setup(1u);
     CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
     CHECK(g_oms.table == &gFakeTable);
+    CHECK(g_oms.deviceRef == gMockDeviceRef);
     CHECK(g_oms.relocates == 1ul);
     CHECK(gFindCalls == 1);
     CHECK(gNextDeviceCalls == 1);
 
-    /* OMS disposes us afterwards; state clears. */
+    /* The notification is installed with the USB-MIDI class filter. */
+    CHECK(gNotifInstalled == 1u);
+    CHECK(gNotifInstallCalls == 1);
+    CHECK(gInstalledFilter == kNotifyAnyEvent);
+    CHECK(gInstalledClass == 0x01u);
+    CHECK(gInstalledSubClass == 0x03u);
+
+    /* The push hook is registered with the class driver. */
+    CHECK(gRegisteredEventCallback == oms_rx_event);
+    CHECK(g_oms.callbackRegistered == 1u);
+
+    /* OMS disposes us afterwards; state clears and the push hook is
+     * unregistered from the class driver (best effort). */
     CHECK(oms_driver_main(omdvDispose, 0L, 0L) == 0L);
     CHECK(g_oms.table == NULL);
+    CHECK(gNotifRemoveCalls == 1);
+    CHECK(gNotifInstalled == 0u);
+    CHECK(gRegisteredEventCallback == NULL);   /* dispose unregistered */
 }
 
 static void test_init_no_driver(void)
 {
     mock_setup(0u);
     gDriverPresent = 0;
-    /* The Spec: omdvInit returns an error -> OMS sends omdvDispose. */
-    CHECK(oms_driver_main(omdvInit, 0L, 0L) != 0L);
+    /* omdvInit succeeds without hardware (SampleCell precedent): the
+     * driver must survive device absence to support hot-plug. */
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(g_oms.table == NULL);
+    CHECK(g_oms.locateFailures == 1ul);
+    CHECK(gNotifInstalled == 1u);
+    /* Clean up so later tests start from a disposed state. */
+    CHECK(oms_driver_main(omdvDispose, 0L, 0L) == 0L);
 }
 
-static void test_init_version_gate(void)
+static void test_init_twice(void)
 {
-    /* A dispatch table older than the client understands must be
-     * rejected (usbmidi9_dispatch.h version rule). */
     mock_setup(1u);
-    gFakeTable.version = 0u;
-    CHECK(oms_driver_main(omdvInit, 0L, 0L) == (long)kUSBBadDispatchTable);
-    CHECK(g_oms.table == NULL);
-    gFakeTable.version = kUSBMIDI9DispatchTableVersion;
     CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    /* A second init must remove the first notification before
+     * reinstalling (no leaked token, no double install). */
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(gNotifInstallCalls == 2);
+    CHECK(gNotifRemoveCalls == 1);
+    CHECK(gNotifInstalled == 1u);
+}
+
+static void test_init_v1_table_rejected(void)
+{
+    mock_setup(1u);
+    /* A v0x0001 table has no setEventCallback entry: the shim must
+     * reject it (it cannot receive push), but stay alive for replug. */
+    gFakeTable.version = 0x0001u;
+    gFakeTable.setEventCallback = NULL;
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(g_oms.table == NULL);
+    CHECK(g_oms.locateFailures == 2ul); /* rejected v1, then no more */
+    CHECK(gNotifInstalled == 1u);
+
+    /* The driver is upgraded to v0x0002; the add notification attaches. */
+    mock_setup(1u);
+    gDriverPresent = 0;             /* no walk-based locate at init */
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    gDriverPresent = 1;
+    mock_notify(kNotifyAddInterface, gMockDeviceRef);
     CHECK(g_oms.table == &gFakeTable);
+    CHECK(gRegisteredEventCallback == oms_rx_event);
 }
 
 static void test_add_devices(void)
@@ -416,6 +542,7 @@ static void test_add_devices(void)
     /* No interfaces attached: nothing to add (mock_setup reset the
      * counter). */
     mock_setup(0u);
+    gDriverPresent = 0;
     CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
     CHECK(gAddedCount == 0u);
 }
@@ -469,25 +596,13 @@ static void test_receive_path(void)
         0x09u, 0x90u, 0x30u, 0x50u,   /* the real G4 Keystation packets */
         0x09u, 0x90u, 0x30u, 0x00u
     };
-    OMSPortID portID;
 
     mock_setup(1u);
-    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
-    CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
-    portID.driverID = kUSBMIDI9OMSDriverSignature;
-    portID.whichInterface = 1;
-    portID.whichPort = 0;
-    CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID, 0x100L) == 0L);
+    mock_start_midi(0x100);
 
-    CHECK(oms_driver_main(omdvStartMIDI, 0L, 0L) == 0L);
-    CHECK(oms_driver_main(omdvStartMIDI2, 0L, 0L) == 0L);
-    CHECK(g_oms.midiStarted == 1u);
-    CHECK(gNMInstallCalls == 1);
-    CHECK(gInstalledNMProc != NULL);
-
-    /* Feed the real G4 traffic and run the poll task. */
+    /* Feed the real G4 traffic through the push hook. */
     mock_queue(0u, g4packets, 8u);
-    mock_poll();
+    mock_data_arrives(0);
 
     CHECK(gCapturedCount == 2u);
     CHECK(gCapturedRefNum[0] == 0x100);
@@ -499,9 +614,13 @@ static void test_receive_path(void)
     CHECK(gCaptured[0].srcIORefNum == 0x100);
     CHECK(gCaptured[1].data[2] == 0x00u);
 
+    /* REGRESSION (the audit's core demand): receiving data performs NO
+     * USBGetNextDeviceByClass walk — the per-tick relocation is gone.
+     * The only walk so far was the single init locate. */
+    CHECK(gNextDeviceCalls == 1);
+
     CHECK(oms_driver_main(omdvStopMIDI, 0L, 0L) == 0L);
     CHECK(g_oms.midiStarted == 0u);
-    CHECK(gNMRemoveCalls == 1);
 }
 
 static void test_receive_sysex(void)
@@ -510,19 +629,12 @@ static void test_receive_sysex(void)
         0x04u, 0xF0u, 0x41u, 0x10u,
         0x08u, 0x42u, 0x12u, 0xF7u     /* CIN 0x8: end with 3 bytes */
     };
-    OMSPortID portID;
 
     mock_setup(1u);
-    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
-    CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
-    portID.driverID = kUSBMIDI9OMSDriverSignature;
-    portID.whichInterface = 1;
-    portID.whichPort = 0;
-    CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID, 0x200L) == 0L);
-    CHECK(oms_driver_main(omdvStartMIDI2, 0L, 0L) == 0L);
+    mock_start_midi(0x200);
 
     mock_queue(0u, sysex, 8u);
-    mock_poll();
+    mock_data_arrives(0);
 
     CHECK(gCapturedCount == 2u);
     CHECK(gCaptured[0].flags == omsStartCont);
@@ -552,13 +664,13 @@ static void test_receive_refnum_minus_one(void)
     CHECK(oms_driver_main(omdvStartMIDI2, 0L, 0L) == 0L);
 
     mock_queue(0u, note, 4u);
-    mock_poll();
+    mock_data_arrives(0);
     CHECK(gCapturedCount == 0u);            /* -1: do not deliver */
 
     /* Later OMS enables the port; the next data is delivered. */
     CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID, 0x300L) == 0L);
     mock_queue(0u, note, 4u);
-    mock_poll();
+    mock_data_arrives(0);
     CHECK(gCapturedCount == 1u);
     CHECK(gCapturedRefNum[0] == 0x300);
 }
@@ -582,7 +694,7 @@ static void test_receive_unconfigured_cable(void)
 
     /* Cable 1 (0x1A = cable 1, CIN 0xA) was never given a refnum. */
     mock_queue(0u, note, 4u);
-    mock_poll();
+    mock_data_arrives(0);
     CHECK(gCapturedCount == 0u);
 
     /* The stream on cable 1 must stay aligned: a later Note Off on the
@@ -593,11 +705,255 @@ static void test_receive_unconfigured_cable(void)
         CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID,
                               0x400L) == 0L);
         mock_queue(0u, noteoff, 4u);
-        mock_poll();
+        mock_data_arrives(0);
         CHECK(gCapturedCount == 1u);
         CHECK(gCapturedRefNum[0] == 0x400);
         CHECK(gCaptured[0].data[0] == 0x80u);
     }
+}
+
+/* Bytes that arrived while MIDI was off must be discarded at
+ * omdvStartMIDI2, never delivered as fresh notes. */
+static void test_backlog_discarded_on_start(void)
+{
+    static const unsigned char note[4] = { 0x0Au, 0x90u, 0x3Cu, 0x40u };
+    OMSPortID portID;
+
+    mock_setup(1u);
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
+    portID.driverID = kUSBMIDI9OMSDriverSignature;
+    portID.whichInterface = 1;
+    portID.whichPort = 0;
+    CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID,
+                          0x100L) == 0L);
+
+    /* MIDI is not running: the class driver pushes and the shim
+     * drains-and-drops (the ring must not fill while MIDI is off). */
+    mock_queue(0u, note, 4u);
+    mock_data_arrives(0);
+    CHECK(gCapturedCount == 0u);            /* not delivered */
+    CHECK(gMockQueueLen[0] == 0u);          /* dropped, ring empty */
+
+    /* Start: the stale backlog is discarded, not delivered. */
+    CHECK(oms_driver_main(omdvStartMIDI2, 0L, 0L) == 0L);
+    CHECK(gCapturedCount == 0u);
+    CHECK(gMockQueueLen[0] == 0u);
+
+    /* Live data now flows. */
+    mock_queue(0u, note, 4u);
+    mock_data_arrives(0);
+    CHECK(gCapturedCount == 1u);
+}
+
+/* A device that attaches while MIDI is already running: the add
+ * notification attaches through the deviceRef (NO device-list walk),
+ * and once OMS re-adds the devices, live data flows. */
+static void test_attach_while_midi_running(void)
+{
+    static const unsigned char note[4] = { 0x0Au, 0x90u, 0x3Cu, 0x40u };
+    OMSPortID portID;
+
+    mock_setup(1u);
+    gDriverPresent = 0;             /* no device at init/start */
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    portID.driverID = kUSBMIDI9OMSDriverSignature;
+    portID.whichInterface = 1;
+    portID.whichPort = 0;
+    CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID,
+                          0x100L) == 0L);
+    CHECK(oms_driver_main(omdvStartMIDI2, 0L, 0L) == 0L);
+    CHECK(g_oms.table == NULL);
+
+    /* The device appears. The add notification attaches WITHOUT a
+     * device-list walk: gNextDeviceCalls counts only the init walk and
+     * the omdvStartMIDI2 locate (each an OMS lifecycle transition). */
+    gDriverPresent = 1;
+    mock_notify(kNotifyAddInterface, gMockDeviceRef);
+
+    CHECK(g_oms.table == &gFakeTable);
+    CHECK(gRegisteredEventCallback == oms_rx_event);
+    CHECK(gNextDeviceCalls == 2);           /* init + startMIDI2 walks */
+    CHECK(gConnIDCalls == 1);               /* notification path */
+
+    /* OMS re-examines the studio setup: devices are re-added and live
+     * data flows through the push hook. */
+    CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
+    CHECK(gAddedCount == 1u);
+    mock_queue(0u, note, 4u);
+    mock_data_arrives(0);
+    CHECK(gCapturedCount == 1u);
+    CHECK(gCapturedRefNum[0] == 0x100);
+    CHECK(gNextDeviceCalls == 2);           /* still no extra walk */
+}
+
+/* Unplug: the matching removal notification drops the cached dispatch
+ * pointer (the class driver fragment is about to unload). Replug: the
+ * add notification re-attaches and delivery resumes. */
+static void test_hotplug_lifecycle(void)
+{
+    static const unsigned char note[4] = { 0x0Au, 0x90u, 0x3Cu, 0x40u };
+
+    mock_setup(1u);
+    mock_start_midi(0x100);
+
+    /* Unplug: the driver fragment unloads; the shim must not touch the
+     * dangling table. Data cannot arrive from a dead driver, but even
+     * if the hook were somehow invoked the drain guard holds. */
+    gDriverPresent = 0;
+    mock_notify(kNotifyRemoveDevice, gMockDeviceRef);
+    CHECK(g_oms.table == NULL);
+    CHECK(g_oms.deviceRef == kNoDeviceRef);
+    mock_queue(0u, note, 4u);
+    mock_data_arrives(0);
+    CHECK(gCapturedCount == 0u);
+    CHECK(gMockQueueLen[0] == 4u);          /* ring untouched */
+
+    /* Replug: the add notification re-locates through the deviceRef
+     * (no walk) and re-registers the hook. The detached shim has no
+     * valid interfaces (oms_detach cleared them), so nothing is
+     * delivered until OMS re-adds the devices. */
+    gDriverPresent = 1;
+    mock_notify(kNotifyAddDevice, gMockDeviceRef);
+    CHECK(g_oms.table == &gFakeTable);
+    CHECK(g_oms.deviceRef == gMockDeviceRef);
+    CHECK(gRegisteredEventCallback == oms_rx_event);
+    CHECK(gCapturedCount == 0u);
+    /* Still only the init walk: replug used the notification. */
+    CHECK(gNextDeviceCalls == 1);
+    CHECK(gConnIDCalls == 1);
+
+    /* OMS re-scans: devices are re-added (the initial add from
+     * mock_start_midi plus this one); the port refnum must be
+     * re-established (oms_detach cleared port state), then the queued
+     * bytes are delivered on the next push. */
+    CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
+    CHECK(gAddedCount == 2u);
+    {
+        OMSPortID portID;
+        portID.driverID = kUSBMIDI9OMSDriverSignature;
+        portID.whichInterface = 1;
+        portID.whichPort = 0;
+        CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID,
+                              0x100L) == 0L);
+    }
+    mock_data_arrives(0);
+    CHECK(gCapturedCount == 1u);
+    CHECK(gNextDeviceCalls == 1);           /* still no extra walk */
+}
+
+/* An unrelated device's removal must not clear our state. */
+static void test_unrelated_remove_keeps_table(void)
+{
+    mock_setup(1u);
+    mock_start_midi(0x100);
+
+    mock_notify(kNotifyRemoveDevice, 0x9999u);
+    CHECK(g_oms.table == &gFakeTable);
+    CHECK(g_oms.deviceRef == gMockDeviceRef);
+    CHECK(gRegisteredEventCallback == oms_rx_event);
+}
+
+/* A removal notification for a device that was never located is a
+ * no-op (no crash, no state change). */
+static void test_remove_before_locate_noop(void)
+{
+    mock_setup(0u);
+    gDriverPresent = 0;
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+
+    mock_notify(kNotifyRemoveDevice, gMockDeviceRef);
+    CHECK(g_oms.table == NULL);
+    mock_notify(kNotifyRemoveInterface, gMockDeviceRef);
+    CHECK(g_oms.table == NULL);
+}
+
+/* The push hook is gated on midiStarted: data that arrives while MIDI
+ * is stopped stays in the ring (discarded at the next start). */
+static void test_event_gated_when_midi_stopped(void)
+{
+    static const unsigned char note[4] = { 0x0Au, 0x90u, 0x3Cu, 0x40u };
+
+    mock_setup(1u);
+    mock_start_midi(0x100);
+    CHECK(oms_driver_main(omdvStopMIDI, 0L, 0L) == 0L);
+
+    mock_queue(0u, note, 4u);
+    mock_data_arrives(0);
+    CHECK(gCapturedCount == 0u);
+    CHECK(gMockQueueLen[0] == 0u);          /* drained and dropped */
+}
+
+/* A SysEx message spanning two events must survive: the per-interface
+ * stream carries continuation state between drains. */
+static void test_sysex_across_events(void)
+{
+    static const unsigned char part1[4] = { 0x04u, 0xF0u, 0x41u, 0x10u };
+    static const unsigned char part2[4] = { 0x08u, 0x42u, 0x12u, 0xF7u };
+
+    mock_setup(1u);
+    mock_start_midi(0x100);
+
+    mock_queue(0u, part1, 4u);
+    mock_data_arrives(0);
+    mock_queue(0u, part2, 4u);
+    mock_data_arrives(0);
+
+    CHECK(gCapturedCount == 2u);
+    CHECK(gCaptured[0].flags == omsStartCont);
+    CHECK(gCaptured[1].flags == omsEndCont);
+    CHECK(gCaptured[0].data[0] == 0xF0u);
+    CHECK(gCaptured[1].data[2] == 0xF7u);
+}
+
+/* A mid-SysEx unplug/replug must not leak continuation state: the
+ * attach path resets the per-port streams. */
+static void test_replug_resets_stream(void)
+{
+    static const unsigned char mid[4] = { 0x04u, 0xF0u, 0x41u, 0x10u };
+    static const unsigned char tail[4] = { 0x08u, 0x42u, 0x12u, 0xF7u };
+
+    mock_setup(1u);
+    mock_start_midi(0x100);
+
+    /* A SysEx starts... */
+    mock_queue(0u, mid, 4u);
+    mock_data_arrives(0);
+    CHECK(gCapturedCount == 1u);
+    CHECK(gCaptured[0].flags == omsStartCont);
+
+    /* ...and the device disappears mid-message. */
+    gDriverPresent = 0;
+    mock_notify(kNotifyRemoveDevice, gMockDeviceRef);
+    CHECK(g_oms.table == NULL);
+
+    /* Replug: the tail alone must NOT complete the old SysEx (the
+     * streams were reset at attach; F7 alone is an unterminated
+     * message and is dropped). */
+    gDriverPresent = 1;
+    mock_notify(kNotifyAddDevice, gMockDeviceRef);
+    mock_queue(0u, tail, 4u);
+    mock_data_arrives(0);
+    CHECK(gCapturedCount == 1u);            /* no spurious completion */
+}
+
+/* RX: a whole SysEx arriving in one end packet is a COMPLETE message:
+ * delivered with omsNoCont, not a dangling end. */
+static void test_receive_whole_sysex_single_packet(void)
+{
+    static const unsigned char sysex[4] = { 0x07u, 0xF0u, 0xF7u, 0x00u };
+
+    mock_setup(1u);
+    mock_start_midi(0x100);
+
+    mock_queue(0u, sysex, 4u);
+    mock_data_arrives(0);
+
+    CHECK(gCapturedCount == 1u);
+    CHECK(gCaptured[0].flags == omsNoCont);
+    CHECK(gCaptured[0].len == 2u);
+    CHECK(gCaptured[0].data[0] == 0xF0u);
+    CHECK(gCaptured[0].data[1] == 0xF7u);
 }
 
 static void test_send_hook(void)
@@ -739,123 +1095,32 @@ static void test_send_hook_sysex_chunks(void)
     CHECK(g_oms.txConverted == 5ul);
 }
 
-/* RX: a whole SysEx arriving in one end packet is a COMPLETE message:
- * delivered with omsNoCont, not a dangling end. */
-static void test_receive_whole_sysex_single_packet(void)
-{
-    static const unsigned char sysex[4] = { 0x07u, 0xF0u, 0xF7u, 0x00u };
-    OMSPortID portID;
-
-    mock_setup(1u);
-    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
-    CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
-    portID.driverID = kUSBMIDI9OMSDriverSignature;
-    portID.whichInterface = 1;
-    portID.whichPort = 0;
-    CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID,
-                          0x100L) == 0L);
-    CHECK(oms_driver_main(omdvStartMIDI2, 0L, 0L) == 0L);
-
-    mock_queue(0u, sysex, 4u);
-    mock_poll();
-
-    CHECK(gCapturedCount == 1u);
-    CHECK(gCaptured[0].flags == omsNoCont);
-    CHECK(gCaptured[0].len == 2u);
-    CHECK(gCaptured[0].data[0] == 0xF0u);
-    CHECK(gCaptured[0].data[1] == 0xF7u);
-}
-
-static void test_poll_relocate(void)
-{
-    OMSPortID portID;
-    static const unsigned char note[4] = { 0x0Au, 0x90u, 0x3Cu, 0x40u };
-
-    mock_setup(1u);
-    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
-    CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
-    portID.driverID = kUSBMIDI9OMSDriverSignature;
-    portID.whichInterface = 1;
-    portID.whichPort = 0;
-    CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID, 0x100L) == 0L);
-    CHECK(oms_driver_main(omdvStartMIDI2, 0L, 0L) == 0L);
-
-    /* Unplug: the driver fragment unloads; the poll re-locates, finds
-     * nothing, and does not touch the dangling table. */
-    gDriverPresent = 0;
-    mock_queue(0u, note, 4u);
-    mock_poll();
-    CHECK(g_oms.table == NULL);
-    CHECK(g_oms.locateFailures == 1ul);
-    CHECK(gCapturedCount == 0u);
-
-    /* Replug: the next poll re-locates and drains again. */
-    gDriverPresent = 1;
-    mock_queue(0u, note, 4u);
-    mock_poll();
-    CHECK(g_oms.table == &gFakeTable);
-    CHECK(gCapturedCount == 1u);
-}
-
-/* A SysEx message spanning two polls must survive: the per-poll
- * dispatch re-location must NOT reset the port streams while the driver
- * stays attached. Poll 2 is a CIN 0x4 continuation WITHOUT F0: with the
- * every-tick reset bug, the cleared in_sysex flag would tag it a fresh
- * START (and count a malformed start); with the fix it stays MID. */
-static void test_sysex_across_polls(void)
-{
-    static const unsigned char sysex_start[4] = { 0x04u, 0xF0u, 0x41u, 0x10u };
-    static const unsigned char sysex_mid[4] = { 0x04u, 0x42u, 0x12u, 0xF7u };
-    OMSPortID portID;
-
-    mock_setup(1u);
-    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
-    CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
-    portID.driverID = kUSBMIDI9OMSDriverSignature;
-    portID.whichInterface = 1;
-    portID.whichPort = 0;
-    CHECK(oms_driver_main(omdvSetPortReceiveRefNum, (long)(Ptr)&portID,
-                          0x100L) == 0L);
-    CHECK(oms_driver_main(omdvStartMIDI2, 0L, 0L) == 0L);
-
-    mock_queue(0u, sysex_start, 4u);
-    mock_poll();
-    CHECK(gCapturedCount == 1u);
-    CHECK(gCaptured[0].flags == omsStartCont);
-
-    /* Second poll: the run continues — a MID chunk, not a fresh START. */
-    mock_queue(0u, sysex_mid, 4u);
-    mock_poll();
-    CHECK(gCapturedCount == 2u);
-    CHECK(gCaptured[1].flags == omsMidCont);
-    CHECK(gCaptured[1].data[0] == 0x42u);
-    CHECK(gCaptured[1].data[1] == 0x12u);
-    CHECK(gCaptured[1].data[2] == 0xF7u);
-    CHECK(g_oms.ifaces[0].ports[0].rx.in_sysex == 1u);
-    CHECK(g_oms.ifaces[0].ports[0].rx.stats.malformed_start == 0ul);
-}
+/* ---- runner ---------------------------------------------------------- */
 
 int test_oms_driver_run(void)
 {
     g_failures = 0;
-
     test_init_locate();
     test_init_no_driver();
-    test_init_version_gate();
+    test_init_twice();
+    test_init_v1_table_rejected();
     test_add_devices();
     test_port_refnum_and_send_proc();
     test_receive_path();
     test_receive_sysex();
     test_receive_refnum_minus_one();
     test_receive_unconfigured_cable();
+    test_backlog_discarded_on_start();
+    test_attach_while_midi_running();
+    test_hotplug_lifecycle();
+    test_unrelated_remove_keeps_table();
+    test_remove_before_locate_noop();
+    test_event_gated_when_midi_stopped();
+    test_sysex_across_events();
+    test_replug_resets_stream();
+    test_receive_whole_sysex_single_packet();
     test_send_hook();
     test_send_hook_sysex_chunks();
-    test_receive_whole_sysex_single_packet();
-    test_poll_relocate();
-    test_sysex_across_polls();
-
-    if (g_failures != 0) {
-        printf("oms_driver: %d check(s) failed\n", g_failures);
-    }
+    printf("test_oms_driver: %s\n", g_failures ? "FAIL" : "OK");
     return g_failures;
 }

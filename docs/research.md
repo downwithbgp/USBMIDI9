@@ -223,15 +223,53 @@ the Roland driver; full table in `spec/oms/requirements.md`):
   'OMdv'/'OMdi'/'SICN').
 - OMS 2.3.8's own USB architecture (period precedent for ours): USB
   OMSMIDIDriver (`ndrv`/`usbd`, exports `TheUSBMIDIInterface` +
-  `TheMIDIClassDispatchTable`) + OMS USB Manager (`shlb`, creator `'OMdv'`,
-  exports `TheOMSUSBManagerDispatchTable`, imports USBGetNextDeviceByClass/
-  USBGetDriverConnectionID/FindSymbol).
+  `TheMIDIClassDispatchTable`, receive = USBIntRead completion at
+  interrupt level + an installed read proc (`MIDIInstallRead` export,
+  `DefaultMIDIReadProcPtr` fallback), deferral via
+  `QueueSecondaryInterruptHandler`) + OMS USB Manager (`shlb`, creator
+  `'OMdv'`, exports `TheOMSUSBManagerDispatchTable`/`OMSUSBMgr*` API,
+  imports USBGetNextDeviceByClass/USBGetDriverConnectionID/FindSymbol/
+  **USBInstallDeviceNotification/USBRemoveDeviceNotification**, and
+  locates the class driver via `USBGetDriverConnectionID(deviceRef)` +
+  FindSymbol from the device notification's deviceRef — no polling).
+
+**OMS receive-scheduling correction (v0.1 audit, G4-gate BLOCKED until
+this lands; implemented + host-tested in the oms-g4-audit spec):** the
+first OMS shim draft used the Notification Manager as a periodic poll
+timer (`NMInstall` re-arm every tick, with a per-tick
+USBGetNextDeviceByClass walk) — **historically false**. PEF disassembly
+of both Opcode 2.3.8 USB components shows NMInstall/NMRemove are used
+ONLY for user-visible alert notifications (static NMRec with qType=8,
+nmStr = alert text, nmResp = response UPP; the manager's alert strings
+are the version-mismatch messages); neither uses a timer at all. The
+authentic mechanisms, now implemented:
+
+- receive = **push**: the class driver's read completion invokes an
+  optional registered event callback (dispatch table v0x0002
+  `setEventCallback`); the OMS shim's callback drains the ring and
+  calls `OMSReceivedFromPort` (interrupt-level legal, Spec);
+- lifecycle = **locate once + USB Manager notifications**:
+  USBInstallDeviceNotification (Rev 26 Ch 4: "Use the
+  USBInstallDeviceNotification mechanism to be alerted when a device or
+  interface is added or removed"; same imports as the real OMS USB
+  Manager). kNotifyAdd* re-attaches through the notification's
+  deviceRef (no walk); kNotifyRemove* with a matching deviceRef drops
+  the cached dispatch pointer before the class driver fragment unloads;
+- the walk (`USBGetNextDeviceByClass`) remains only at OMS lifecycle
+  transitions (omdvInit/omdvAddDevices/omdvStartMIDI2) for presence
+  determination — never per tick.
 
 **Remaining OMS unknowns** (documented, not guessed): how OMS loads the
 shlb-form USB Manager (loading contract unverified — we use the fully
 verified `'OMdv'` form); the exact header of the PEF-in-`'OMdv'` resource
 (inferred "0000 <len>" layout; validated on the G4 against the Roland
-binary).
+binary); the USB Manager notification parameter-block `pbVersion` value
+(Rev 26 defines no constant; Apple's StorageClassShim.c sample leaves it
+unset — the shim passes 0, to be confirmed on the G4); the
+`pb->usbDeviceRef` semantics for INTERFACE notification events (the
+event VALUES are disassembly-verified; the ref is expected to be the
+containing device's ref — hardware-verify on the G4, see
+docs/g4-handoff.md gate 5).
 
 ## FreeMIDI
 

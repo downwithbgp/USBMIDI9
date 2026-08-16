@@ -1,10 +1,22 @@
 # M4 design — neutral MIDI stream layer + OMS shim
 
+> **SUPERSEDED in part by `spec/oms-g4-audit/` (OMS receive-scheduling
+> correction).** Section 2.3's poll-timer design (below) is historically
+> false — the Notification Manager is an alert API, not a timer (verified
+> by PEF disassembly of Opcode's own OMS 2.3.8 USB components), and a
+> per-tick `USBGetNextDeviceByClass` walk is a real-G4 freeze suspect.
+> The authentic replacement (push event callback via dispatch table
+> v0x0002 + `USBInstallDeviceNotification` lifecycle, no timer, locate
+> only at lifecycle transitions) is implemented and host-tested; see
+> `spec/oms-g4-audit/requirements.md` and `tasks.md`. Sections 1-2.2
+> (neutral boundary, midi_stream, omdv dispatch) remain current.
+
 ## 1. Neutral service boundary (frozen, with one justified addition)
 
-The existing `USBMIDI9DispatchTable` (version 0x0001) already provides what the
-OMS driver needs from the transport: enumerate interfaces, per-interface info,
-polled byte dequeue. It stays version 0x0001; no "v2" is invented.
+The existing `USBMIDI9DispatchTable` provides what the OMS driver needs
+from the transport: enumerate interfaces, per-interface info, polled byte
+dequeue, and (v0x0002, added by the oms-g4-audit correction) an optional
+interrupt-level event callback for push delivery (`setEventCallback`).
 
 The OMS input contract (requirements #8) requires: parse raw received bytes
 into **single conventional MIDI messages**, and for SysEx deliver messages with

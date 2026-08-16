@@ -3,8 +3,13 @@
 Current status: **M1B hardware gate PASSED** (real G4: matching, dispatch,
 bulk receive — `docs/classic-usb-driver.md` §9.5/§9.8; one unresolved
 defect: hard freeze on unrelated-device hot-plug while USBMIDI9 is active,
-§9.9). **M4 OMS source gate COMPLETE** (`oms/`, `core/midi_stream`,
-reviewed; host-tested); the OMS hardware gate on the G4 is NEXT.
+§9.9). **M4 OMS: historical research gate PASSED; adapter logic partial
+(source work); real-target source gate BLOCKED until the authentic
+receive/lifecycle is verified on the G4; G4 build/test NOT YET
+attempted.** The OMS receive-scheduling correction (push callback +
+USB Manager device notifications, no poll timer, no per-tick USB walk)
+is implemented and host-tested (`spec/oms-g4-audit/`); the G4 hardware
+gate is NEXT.
 
 ## M0 — Repository and portable core
 
@@ -48,8 +53,13 @@ unrelated-device hot-plug freeze (`spec/m1b-hotplug/tasks.md`).
 ## M4 — OMS
 
 * OMS research gate — **PASSED** (primary sources; `docs/research.md`)
-* OMS driver shim source gate — **COMPLETE** (`oms/`, host-tested,
-  reviewed; commit b965352)
+* OMS adapter logic — **partial/source work** (omdv dispatch + device
+  registration correct; receive scheduling corrected in the oms-g4-audit
+  pass: push event callback + USB Manager device notifications, no
+  Notification Manager timer, no per-tick USB walk)
+* OMS real-target source gate — **BLOCKED** until the authentic receive
+  scheduling/lifetime is verified against real OMS on the G4
+* OMS G4 build/test — **NOT YET attempted**
 * OMS Setup discovers USBMIDI9 — **hardware gate (next)**
 * Keystation produces MIDI in OMS — **hardware gate**
 * ReBirth receives keyboard input — **hardware gate**

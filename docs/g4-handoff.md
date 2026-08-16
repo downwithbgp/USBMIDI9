@@ -37,9 +37,25 @@ are provided by the OMS system itself at load time (the OMS runtime
 exports them; the 68k-glue story from the SDK's `OMSDriver.h` does not
 apply to a PPC driver calling them directly — verify with a link test; if
 the linker cannot resolve them, obtain the OMS glue from the SDK's
-`Libraries/` and link it). USB calls: `USBGetNextDeviceByClass`,
-`FindSymbol`, `GetZone`/`SetZone`/`SystemZone` (lookup only — no USL
-transfer calls), plus `NMInstall`/`NMRemove` from InterfaceLib.
+`Libraries/` and link it). USB calls (lookup/lifecycle only — **no USL
+transfer calls**):
+- `USBGetNextDeviceByClass`, `FindSymbol`, `GetZone`/`SetZone`/`SystemZone`
+  (one-time dispatch-table location at OMS lifecycle transitions);
+- `USBGetDriverConnectionID` (attach via the device notification);
+- `USBInstallDeviceNotification`/`USBRemoveDeviceNotification` (USB
+  Manager device lifecycle — the same API Opcode's OMS 2.3.8 OMS USB
+  Manager imports; USBManagerLib);
+- **NO** `NMInstall`/`NMRemove`: the Notification Manager is an alert
+  API, not a timer (verified by disassembly of Opcode's own USB
+  components; see docs/host-check-audit.md). There is no poll task —
+  receive is push: the class driver's read completion invokes the shim's
+  registered event callback (dispatch table v0x0002 `setEventCallback`),
+  which drains the ring and calls `OMSReceivedFromPort` (interrupt-level
+  legal per the Spec).
+
+The shim requires the **v0x0002** `USBMIDI9DispatchTable` (the class
+driver must be rebuilt from this tree — the Probe, with its 0x0001
+minimum, still works against the new driver).
 
 Exports (linker): use `codewarrior/USBMIDI9_OMS.exp` — exactly one
 symbol: **`main`** (the driver entry
@@ -90,19 +106,39 @@ Roland drivers use them).
 ## Gate order (test on the G4, in this order)
 
 1. **Probe regression**: the existing Probe still enumerates and receives
-   Keystation packets (nothing broke).
+   Keystation packets (nothing broke — the Probe's 0x0001 minimum accepts
+   the v0x0002 driver).
 2. **OMS driver loads**: install `USBMIDI9 OMS Driver` in the OMS Folder;
    open OMS Setup → File → New Studio Setup → the interface search finds
-   "USBMIDI9 Port 1" (the SICN icon should appear).
+   "USBMIDI9 Port 1" (the SICN icon should appear). The driver must load
+   with or without the Keystation attached (omdvInit no longer fails on a
+   missing device).
 3. **OMS receives MIDI**: in OMS Setup, create the studio setup with the
    Keystation connected to "USBMIDI9 Port 1"; open an OMS application
    (ReBirth RB-338 is the acceptance target) and play the keyboard. If
    OMS Setup's Test Studio mode exists (omdvTestDevice), click the device
-   there first.
+   there first. Receive is push-based (class driver → event callback →
+   OMSReceivedFromPort); there is no poll task to observe.
 4. **ReBirth acceptance**: Keystation -> USBMIDI9 -> OMS -> ReBirth.
-5. **Hot-plug note**: with MIDI running, unplugging/replugging the
-   Keystation exercises the poll re-locate; the known unrelated-device
-   hot-plug freeze (docs/classic-usb-driver.md §9.9) is still open.
+5. **Hot-plug**: with MIDI running, unplug/replug the Keystation. The
+   shim learns of the removal via the USB Manager notification
+   (kNotifyRemove*) and drops the cached dispatch pointer; on replug the
+   add notification re-attaches (no device-list walk). Re-open the OMS
+   Setup to re-add devices if they do not reappear automatically. The
+   known unrelated-device hot-plug freeze (docs/classic-usb-driver.md
+   §9.9) is still open — but the OMS shim no longer contributes a 60 Hz
+   USBGetNextDeviceByClass walk (the previous poll task is deleted).
+   **Hardware-verify item**: the notification event VALUES
+   (kNotifyAddDevice=0/RemoveDevice=1/AddInterface=2/RemoveInterface=3)
+   are disassembly-verified from the real OMS USB Manager, but the
+   `pb->usbDeviceRef` semantics for INTERFACE events are not — if the
+   USB Manager reports a different ref for kNotifyRemoveInterface than
+   the one returned by USBGetNextDeviceByClass/USBGetDriverConnectionID,
+   the detach match would not fire and the cached dispatch pointer would
+   dangle until the next OMS message. Confirm with a debug print in the
+   notification callback on the G4; the fallback (drop the table on any
+   kNotifyRemove* when no other USBMIDI9 is attached) is a one-line
+   change.
 6. **Output**: NOT testable yet (the send hook drops; the bulk-OUT path
    is a separate milestone — `TODO(oms-output)`).
 

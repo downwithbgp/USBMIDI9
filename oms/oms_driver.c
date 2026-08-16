@@ -15,6 +15,25 @@
  * appropriate (Spec: "The driver must return zero in response to any
  * message, except when the driver is returning a specific value which is
  * appropriate for the message it received.").
+ *
+ * Lifecycle (v0.1 audit correction — no per-tick USB activity):
+ *   - the dispatch table is located ONLY at lifecycle transitions
+ *     (omdvInit / omdvAddDevices / omdvStartMIDI2) and on device-add
+ *     notifications. There is NO periodic poll task.
+ *   - attach/detach of the USBMIDI9 class driver is learned from the
+ *     USB Manager's device notification (USBInstallDeviceNotification;
+ *     Rev 26 Ch 4: "Use the USBInstallDeviceNotification mechanism to be
+ *     alerted when a device or interface is added or removed" — the
+ *     same API the real Opcode OMS USB Manager imports). A matching
+ *     kNotifyRemove* drops the cached dispatch pointer before the class
+ *     driver fragment unloads; kNotifyAdd* re-locates through the
+ *     notification's deviceRef (USBGetDriverConnectionID + FindSymbol,
+ *     the Opcode OMS USB Manager's own pattern), with a
+ *     USBGetNextDeviceByClass walk only as the init fallback.
+ *   - receive is push-based: the class driver's read completion invokes
+ *     oms_rx_event (dispatch table v0x0002 setEventCallback), which
+ *     drains the ring and calls OMSReceivedFromPort (interrupt-level
+ *     legal per the Spec).
  */
 
 #include <MacTypes.h>
@@ -26,7 +45,6 @@
 #include <OSUtils.h>
 #include <OMS.h>
 #include <OMSDriver.h>
-#include <Notifications.h>
 
 #include "oms_driver.h"
 
@@ -40,7 +58,7 @@
 #endif
 
 /* Generic USB-MIDI interface match (mirrors the driver description and
- * the Probe). */
+ * the Probe; also the device-notification class/subclass filter). */
 #define kOmsInterfaceClass    0x01u
 #define kOmsInterfaceSubClass 0x03u
 
@@ -107,55 +125,118 @@ static void oms_pstr_set_n(unsigned char *name, const char *lit, unsigned max)
     name[0] = (unsigned char)len;
 }
 
+/* Register the push hook for every interface index the driver reports.
+ * Interfaces that appear later are registered at the next omdvAddDevices
+ * (M1B single-device scope). */
+static void oms_register_callbacks(struct USBMIDI9DispatchTable *table)
+{
+    UInt32 i;
+
+    g_oms.callbackRegistered = 0u;
+    for (i = 0u; i < kUSBMIDI9OMSMaxInterfaces; i++) {
+        if (table->setEventCallback(i, oms_rx_event, 0u) == noErr) {
+            g_oms.callbackRegistered = 1u;
+        }
+    }
+}
+
+/* Bind the shim to a located class driver: version-gate the table,
+ * cache it, reset stream state (a bind only ever happens from
+ * no-table), register the push hook, and drain the backlog (delivered
+ * only if MIDI is running). */
+static OSErr oms_bind_dispatch(USBDeviceRef deviceRef,
+                               CFragConnectionID connID)
+{
+    THz currentZone;
+    CFragSymbolClass symClass;
+    struct USBMIDI9DispatchTable *table;
+    OSErr err;
+
+    table = NULL;
+    /* Class drivers load in the System Zone; look up the symbol
+     * there (Rev 26 Ch 4 p. 83-85; HIDReader.c pattern). */
+    currentZone = GetZone();
+    SetZone(SystemZone());
+    err = FindSymbol(connID, kOmsDispatchSymbolName, (Ptr *)&table,
+                     &symClass);
+    SetZone(currentZone);
+    if (err != noErr || table == NULL) {
+        g_oms.locateFailures++;
+        return (err != noErr) ? err : kUSBBadDispatchTable;
+    }
+    /* The shim needs the v0x0002 push hook; a v1 driver is rejected
+     * but the shim stays alive for a later replug. */
+    if (table->version < kUSBMIDI9OMSDispatchMinVersion
+        || table->setEventCallback == NULL) {
+        g_oms.locateFailures++;
+        return kUSBBadDispatchTable;
+    }
+    g_oms.table = table;
+    g_oms.deviceRef = deviceRef;
+    g_oms.relocates++;
+    oms_reset_ports();
+    oms_register_callbacks(table);
+    /* Backlog that arrived before the hook was registered: deliver if
+     * MIDI is running, otherwise discard it below. */
+    oms_rx_drain_all(g_oms.midiStarted);
+    return noErr;
+}
+
+/* Attach via the device notification's deviceRef: no device-list walk
+ * (the Opcode OMS USB Manager's AddDeviceOrInterface pattern). */
+static OSErr oms_attach_device(USBDeviceRef deviceRef)
+{
+    CFragConnectionID connID;
+
+    if (g_oms.table != NULL) {
+        return noErr;               /* already attached */
+    }
+    if (USBGetDriverConnectionID(deviceRef, &connID) != noErr) {
+        return kUSBNotFound;
+    }
+    return oms_bind_dispatch(deviceRef, connID);
+}
+
+/* Locate the USBMIDI9 dispatch table via USBGetNextDeviceByClass +
+ * FindSymbol (the Probe's verified pattern; Rev 26 Ch 4 "to determine
+ * the presence of a device"). Called ONLY at lifecycle transitions:
+ * omdvInit, omdvAddDevices, omdvStartMIDI2. Never per tick. */
 OSErr oms_locate_dispatch(void)
 {
     USBDeviceRef deviceRef;
     CFragConnectionID connID;
-    CFragSymbolClass symClass;
-    THz currentZone;
-    struct USBMIDI9DispatchTable *table;
-    unsigned char hadTable;
-    OSErr err;
 
-    hadTable = (g_oms.table != NULL);
-    g_oms.table = NULL;
+    if (g_oms.table != NULL) {
+        return noErr;
+    }
     deviceRef = kNoDeviceRef;
     for (;;) {
-        err = USBGetNextDeviceByClass(&deviceRef, &connID,
-                                      kOmsInterfaceClass,
-                                      kOmsInterfaceSubClass,
-                                      kUSBAnyProtocol);
-        if (err != noErr) {
+        if (USBGetNextDeviceByClass(&deviceRef, &connID,
+                                    kOmsInterfaceClass,
+                                    kOmsInterfaceSubClass,
+                                    kUSBAnyProtocol) != noErr) {
             g_oms.locateFailures++;
-            return err;                 /* no (more) matching driver */
+            return kUSBNotFound;    /* no (more) matching driver */
         }
-        table = NULL;
-        /* Class drivers load in the System Zone; look up the symbol
-         * there (Rev 26 Ch 4 p. 83-85; HIDReader.c pattern). */
-        currentZone = GetZone();
-        SetZone(SystemZone());
-        err = FindSymbol(connID, kOmsDispatchSymbolName,
-                         (Ptr *)&table, &symClass);
-        SetZone(currentZone);
-        if (err == noErr && table != NULL) {
-            /* Version gate (usbmidi9_dispatch.h): clients must not call
-             * procs from a table older than they understand. */
-            if (table->version < kUSBMIDI9DispatchTableVersion) {
-                g_oms.locateFailures++;
-                return kUSBBadDispatchTable;
-            }
-            if (!hadTable) {
-                /* The driver (re)appeared: reset per-port stream state
-                 * so a mid-SysEx unplug cannot leave stale continuation
-                 * state behind. Only on a transition: the table was NOT
-                 * found on the previous poll. */
-                oms_reset_ports();
-            }
-            g_oms.table = table;
-            g_oms.relocates++;
+        if (oms_bind_dispatch(deviceRef, connID) == noErr) {
             return noErr;
         }
+        /* Not our driver (no USBMIDI9DispatchTable symbol) or a too-old
+         * table: try the next USB-MIDI device. */
     }
+}
+
+/* Drop the cached dispatch pointer: the class driver fragment is about
+ * to unload (kNotifyRemove* precedes the driver's finalize), so any
+ * cached pointer would dangle. OMS re-scans via omdvAddDevices when the
+ * user re-examines the studio setup. */
+static void oms_detach(void)
+{
+    g_oms.table = NULL;
+    g_oms.deviceRef = kNoDeviceRef;
+    g_oms.callbackRegistered = 0u;
+    g_oms.nInterfaces = 0u;
+    oms_zero(g_oms.ifaces, sizeof(g_oms.ifaces));
 }
 
 /* Refresh the cached dispatch table; returns noErr when usable. */
@@ -167,21 +248,94 @@ static OSErr oms_ensure_dispatch(void)
     return noErr;
 }
 
+/* USB Manager device notification (task time; Rev 26 Ch 4/6, and the
+ * same event values the Opcode OMS USB Manager switches on). Installed
+ * at omdvInit; the USB Manager may call it synchronously during
+ * installation for an already-attached device. */
+static void oms_usb_notify(USBDeviceNotificationParameterBlock *pb)
+{
+    if (pb == NULL) {
+        return;
+    }
+    switch (pb->usbDeviceNotification) {
+    case kNotifyAddDevice:
+    case kNotifyAddInterface:
+        (void)oms_attach_device(pb->usbDeviceRef);
+        break;
+    case kNotifyRemoveDevice:
+    case kNotifyRemoveInterface:
+        if (g_oms.table != NULL && pb->usbDeviceRef == g_oms.deviceRef) {
+            oms_detach();
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 /* --- omdvInit / omdvDispose ------------------------------------------ */
 
 static OSErr oms_init(OMSFile *file)
 {
     (void)file;                         /* driver location; not needed */
 
+    /* Re-entry guard: a second init must remove the first notification
+     * (the token lives in notifPb; zeroing first would leak it). */
+    if (g_oms.notifierInstalled) {
+        (void)USBRemoveDeviceNotification(g_oms.notifPb.token);
+        g_oms.notifierInstalled = 0u;
+    }
     oms_zero(&g_oms, sizeof(g_oms));
-    return oms_locate_dispatch();       /* error -> OMS sends omdvDispose */
+
+    /* Install the device notification first: the USB Manager may call
+     * back synchronously for an already-attached device, and the
+     * zeroed state makes that safe. Then locate any device that was
+     * already attached before this driver loaded (one walk). */
+    g_oms.notifPb.pbLength = (UInt16)sizeof(g_oms.notifPb);
+    g_oms.notifPb.pbVersion = 0u;       /* Rev 26 Ch 6 does not define a
+                                           version constant; Apple's
+                                           StorageClassShim.c sample
+                                           leaves it unset */
+    g_oms.notifPb.usbDeviceNotification = kNotifyAnyEvent;
+    g_oms.notifPb.reserved1 = 0u;
+    g_oms.notifPb.usbDeviceRef = kNoDeviceRef;
+    g_oms.notifPb.usbClass = kOmsInterfaceClass;
+    g_oms.notifPb.usbSubClass = kOmsInterfaceSubClass;
+    g_oms.notifPb.usbProtocol = kUSBAnyProtocol;
+    g_oms.notifPb.usbVendor = kUSBAnyVendor;
+    g_oms.notifPb.usbProduct = kUSBAnyProduct;
+    g_oms.notifPb.result = noErr;
+    g_oms.notifPb.callback = oms_usb_notify;
+    g_oms.notifPb.refcon = 0u;
+    USBInstallDeviceNotification(&g_oms.notifPb);
+    if (g_oms.notifPb.result == noErr) {
+        g_oms.notifierInstalled = 1u;
+    }
+    /* No hard failure when no device is attached: the driver must
+     * survive device absence to support hot-plug (SampleCell's omdvInit
+     * succeeds without hardware; the Spec's only mandated compat-1
+     * error is an OMSVersion() < 2.0 check, not hardware presence). */
+    (void)oms_locate_dispatch();
+    return 0;
 }
 
 static OSErr oms_dispose(void)
 {
-    if (g_oms.timerRunning) {
-        NMRemove(&g_oms.nmRec);
-        g_oms.timerRunning = 0u;
+    /* Best effort: unregister the push hook so the class driver never
+     * calls into a fragment that is going away. The class driver also
+     * clears its own copy at kNotifyDriverBeingRemoved. */
+    if (g_oms.table != NULL && g_oms.table->setEventCallback != NULL) {
+        UInt32 i;
+
+        for (i = 0u; i < kUSBMIDI9OMSMaxInterfaces; i++) {
+            (void)g_oms.table->setEventCallback(i, NULL, 0u);
+        }
+    }
+    if (g_oms.notifierInstalled) {
+        /* Rev 26 Ch 6: a notification must be removed before the code
+         * fragment unloads. */
+        (void)USBRemoveDeviceNotification(g_oms.notifPb.token);
+        g_oms.notifierInstalled = 0u;
     }
     oms_zero(&g_oms, sizeof(g_oms));
     return 0;
@@ -208,6 +362,9 @@ static OSErr oms_add_devices(OMSDvrAdd1DevProc1 add1Device)
     if (err != noErr) {
         return 0;                       /* no interfaces to add */
     }
+    /* Re-register the push hook: interfaces may have appeared since the
+     * last registration (each new interface starts with a NULL hook). */
+    oms_register_callbacks(g_oms.table);
     if (g_oms.table->enumerateInterfaces(NULL, 0u, &count) != noErr) {
         return 0;
     }
@@ -271,7 +428,13 @@ static OSErr oms_start_midi2(void)
 {
     unsigned i;
 
-    g_oms.midiStarted = 1u;
+    /* Attach first (while midiStarted is still 0, so the attach drain
+     * DISCARDS the stale backlog instead of delivering it), then drop
+     * anything that arrived while MIDI was off, then reset the per-port
+     * streams so no mid-SysEx continuation leaks across a stop/start,
+     * and only then start delivering. */
+    (void)oms_ensure_dispatch();
+    oms_rx_drain_all(0u);               /* discard stale backlog */
     for (i = 0u; i < kUSBMIDI9OMSMaxInterfaces; i++) {
         if (g_oms.ifaces[i].valid) {
             unsigned c;
@@ -285,27 +448,12 @@ static OSErr oms_start_midi2(void)
             }
         }
     }
-    if (!g_oms.timerRunning) {
-        g_oms.nmRec.nMsg = (UInt32)(unsigned long)oms_poll_task;
-        g_oms.nmRec.nRefCon = 0u;
-        /* Notification Manager eventTime is absolute ticks (since
-         * startup); a relative 1 would have already passed and fire the
-         * task back-to-back. Absolute base + fixed period: the task
-         * re-arms with eventTime += period, so the rate does not drift. */
-        g_oms.nmRec.eventTime = Ticks() + kUSBMIDI9OMSPollTicks;
-        if (NMInstall(&g_oms.nmRec) == noErr) {
-            g_oms.timerRunning = 1u;
-        }
-    }
+    g_oms.midiStarted = 1u;
     return 0;
 }
 
 static OSErr oms_stop_midi(void)
 {
-    if (g_oms.timerRunning) {
-        NMRemove(&g_oms.nmRec);
-        g_oms.timerRunning = 0u;
-    }
     g_oms.midiStarted = 0u;
     return 0;
 }
