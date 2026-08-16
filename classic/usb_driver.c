@@ -303,6 +303,14 @@ static void USBMIDI9CompletionProc(USBPB *pb)
                                        kUSBMIDI9RingSize,
                                        &inst->ringHead, &inst->ringTail,
                                        pb->usbBuffer, pb->usbActCount);
+                /* Push notification (v0x0002): the optional client hook
+                 * runs here, inside this completion, so the driver
+                 * fragment is alive for the whole call. NULL when no
+                 * client wants push (Probe poll path unchanged). */
+                if (inst->eventCallback != nil) {
+                    inst->eventCallback((UInt32)(inst - gUSBMIDI9Instances),
+                                        inst->eventRefcon);
+                }
             }
             if (pb->usbStatus == kUSBNoErr) {
                 inst->pb.usbRefcon = kReadBulkInPipeState;   /* resubmit */
@@ -394,6 +402,26 @@ static UInt32 USBMIDI9DequeueBytes(UInt32 index, void *buffer, UInt32 maxBytes)
                             buffer, maxBytes);
 }
 
+/* v0x0002: register (or clear, with a NULL callback) the interrupt-level
+ * event callback for one interface. Called by the client at task time. */
+static OSStatus USBMIDI9SetEventCallback(UInt32 index,
+                                         USBMIDI9EventCallbackProcPtr callback,
+                                         UInt32 refcon)
+{
+    usbmidi9_instance *inst;
+
+    if (index >= gUSBMIDI9InstanceCount) {
+        return kUSBNotFound;
+    }
+    inst = &gUSBMIDI9Instances[index];
+    /* Store refcon first: the callback store is the commit point, so a
+     * completion firing mid-registration never sees a new callback
+     * with a stale refcon. */
+    inst->eventRefcon = refcon;
+    inst->eventCallback = callback;
+    return kUSBNoErr;
+}
+
 /* ------------------------------------------------------------------ */
 /* Apple-required exports (codewarrior/USBMIDI9.exp).                  */
 /* ------------------------------------------------------------------ */
@@ -436,7 +464,8 @@ struct USBMIDI9DispatchTable USBMIDI9DispatchTable = {
     kUSBMIDI9DispatchTableVersion,
     USBMIDI9EnumerateInterfaces,
     USBMIDI9GetInterfaceInfo,
-    USBMIDI9DequeueBytes
+    USBMIDI9DequeueBytes,
+    USBMIDI9SetEventCallback
 };
 
 /* ------------------------------------------------------------------ */
@@ -562,6 +591,8 @@ static OSStatus USBMIDI9NotifyProc(UInt32 notification, void *pointer,
             for (i = 0u; i < gUSBMIDI9InstanceCount; i++) {
                 usbmidi9_instance *inst = &gUSBMIDI9Instances[i];
                 inst->removing = true;
+                inst->eventCallback = nil;   /* no pushes into a dying client */
+                inst->eventRefcon = 0u;
                 if (inst->pb.usbRefcon & kCompletionPending) {
                     if (inst->bulkInPipe != 0) {
                         if (USBAbortPipeByReference(inst->bulkInPipe)

@@ -49,6 +49,7 @@
 #define kProbePollTicks 15u     /* Delay(15) = about 0.25 s between polls */
 #define kProbeMaxInterfaces 8u  /* matches kUSBMIDI9MaxInterfaces */
 #define kProbeDequeueChunk 64u  /* bytes dequeued per interface per poll */
+#define kProbeMinDispatchTableVersion 0x0001u /* probe needs no v0x0002 entry */
 
 /* Keycode of 'Q' in the ADB/KeyMap encoding (GetKeys): 0x0C per the
  * classic keycode table (Carbon kVK_ANSI_Q = 0x0C). */
@@ -181,7 +182,7 @@ static Boolean USBMIDI9ProbePoll(struct USBMIDI9ProbeState *state)
         state->lastCount = 0xFFFFFFFFu; /* reprint the table on reappearance */
     } else {
         state->noDriverReported = 0;    /* present: a future absence is reported */
-        if (table->version < kUSBMIDI9DispatchTableVersion) {
+        if (table->version < kProbeMinDispatchTableVersion) {
             printf("USBMIDI9 driver dispatch table version %lu is too old\n",
                    (unsigned long)table->version);
         } else {

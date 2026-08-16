@@ -92,6 +92,8 @@ typedef struct usbmidi9_instance {
     UInt32 callInFlight;             /* token of the call not yet completed (0 = none) */
     UInt32 transDepth;               /* InitiateTransaction re-entrancy depth */
     Boolean removing;                /* set at removal: stop resubmission */
+    USBMIDI9EventCallbackProcPtr eventCallback; /* optional client push hook */
+    UInt32 eventRefcon;              /* refcon passed to the event callback */
 } usbmidi9_instance;
 
 #endif /* USBMIDI9_CLASSIC_USB_DRIVER_H */

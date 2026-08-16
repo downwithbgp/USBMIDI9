@@ -13,15 +13,21 @@
  *   - a version field
  *   - enumeration of the attached USBMIDI9 interfaces
  *   - basic interface/endpoint information per interface
- *   - dequeue of raw received bytes (polled by the client)
+ *   - dequeue of raw received bytes
+ *   - (v0x0002) registration of an optional per-interface event
+ *     callback, invoked by the driver's read completion right after
+ *     bytes are enqueued into the ring (interrupt-level push; clients
+ *     that only poll, like the Probe, leave it NULL)
  *
  * The exported symbol is declared `struct USBMIDI9DispatchTable
  * USBMIDI9DispatchTable` (a variable in the tag namespace, since a
  * variable cannot share a name with a typedef in the same scope).
  *
  * All procs are called from the client at task time and run in the
- * driver's context. Byte counts are UInt32; indices are 0-based and
- * stable only until an interface is removed.
+ * driver's context, EXCEPT the event callback, which the driver calls
+ * from its read completion at (secondary) interrupt level. Byte counts
+ * are UInt32; indices are 0-based and stable only until an interface
+ * is removed.
  */
 
 #ifndef USBMIDI9_CLASSIC_USBMIDI9_DISPATCH_H
@@ -31,8 +37,17 @@
 
 /* Current table version. Clients must check `version` before calling
  * through the table and must not call procs that postdate the version
- * they understand. */
-#define kUSBMIDI9DispatchTableVersion 0x0001u
+ * they understand. v0x0002 adds setEventCallback (the event callback
+ * typedef below). */
+#define kUSBMIDI9DispatchTableVersion 0x0002u
+
+/* Called by the driver's read completion after bytes are enqueued for
+ * interface `index`. Runs at (secondary) interrupt level in the
+ * driver's context; the driver fragment is alive for the whole call.
+ * The callback must be cheap and must not call back into the dispatch
+ * table except dequeueBytes. `refcon` is the value passed to
+ * setEventCallback. */
+typedef void (*USBMIDI9EventCallbackProcPtr)(UInt32 index, UInt32 refcon);
 
 /* Basic interface/endpoint information for one attached interface.
  * Filled by USBMIDI9EnumerateInterfaces / USBMIDI9GetInterfaceInfo.
@@ -72,6 +87,16 @@ struct USBMIDI9DispatchTable {
      * copied (0 when empty or the index is out of range). Non-blocking:
      * the client polls. */
     UInt32 (*dequeueBytes)(UInt32 index, void *buffer, UInt32 maxBytes);
+
+    /* v0x0002. Register (or clear, with a NULL callback) the event
+     * callback for the interface at the given 0-based index. The driver
+     * calls the callback from its read completion after enqueueing
+     * bytes into the ring. Returns noErr, paramErr on a NULL table
+     * entry (never — the table is a static struct), or kUSBNotFound
+     * when the index is out of range. */
+    OSStatus (*setEventCallback)(UInt32 index,
+                                 USBMIDI9EventCallbackProcPtr callback,
+                                 UInt32 refcon);
 };
 
 #endif /* USBMIDI9_CLASSIC_USBMIDI9_DISPATCH_H */

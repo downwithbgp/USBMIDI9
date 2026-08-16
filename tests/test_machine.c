@@ -378,6 +378,95 @@ static void test_happy_path(void)
     CHECK(count == 1u);
 }
 
+/* Event callback globals (v0x0002 setEventCallback). */
+static unsigned gEventCalls;
+static UInt32 gEventIndex;
+static UInt32 gEventRefcon;
+
+static void event_callback(UInt32 index, UInt32 refcon)
+{
+    gEventCalls++;
+    gEventIndex = index;
+    gEventRefcon = refcon;
+}
+
+/* 1b. v0x0002 event callback: not registered -> no push (Probe path);
+ * registered -> the completion invokes it after enqueueing; NULL clears
+ * it; out-of-range indices are rejected. */
+static void test_event_callback(void)
+{
+    static const unsigned char packet[4] = { 0x09u, 0x90u, 0x3Cu, 0x57u };
+    unsigned char out[16];
+    UInt32 n;
+
+    mock_reset(MODE_NORMAL);
+    cleanup_all();
+    gEventCalls = 0;
+    drive_init_to_read();
+
+    /* Not registered: the read completes, no callback, ring intact. */
+    memcpy(gPendingPB->usbBuffer, packet, 4);
+    gPendingPB->usbActCount = 4;
+    gPendingPB->usbStatus = kUSBNoErr;
+    complete_pending();
+    CHECK(gEventCalls == 0u);
+    n = USBMIDI9DispatchTable.dequeueBytes(0u, out, sizeof(out));
+    CHECK(n == 4u);
+
+    /* Register, deliver a second packet: the callback fires with the
+     * interface index and refcon, after the bytes were enqueued (the
+     * ring is drained in the completion's context by the client hook). */
+    CHECK(USBMIDI9DispatchTable.setEventCallback(0u, event_callback,
+                                                 0xCAFEu) == kUSBNoErr);
+    memcpy(gPendingPB->usbBuffer, packet, 4);
+    gPendingPB->usbActCount = 4;
+    gPendingPB->usbStatus = kUSBNoErr;
+    complete_pending();
+    CHECK(gEventCalls == 1u);
+    CHECK(gEventIndex == 0u);
+    CHECK(gEventRefcon == 0xCAFEu);
+    n = USBMIDI9DispatchTable.dequeueBytes(0u, out, sizeof(out));
+    CHECK(n == 4u);
+
+    /* Out-of-range index is rejected. */
+    CHECK(USBMIDI9DispatchTable.setEventCallback(9u, event_callback,
+                                                 0u) == kUSBNotFound);
+
+    /* Clearing (NULL callback) restores the no-push behavior. */
+    CHECK(USBMIDI9DispatchTable.setEventCallback(0u, NULL, 0u) == kUSBNoErr);
+    gEventCalls = 0;
+    memcpy(gPendingPB->usbBuffer, packet, 4);
+    gPendingPB->usbActCount = 4;
+    gPendingPB->usbStatus = kUSBNoErr;
+    complete_pending();
+    CHECK(gEventCalls == 0u);
+}
+
+/* 1c. Removal clears the registered callback: no push into a client
+ * whose fragment may be going away. */
+static void test_removal_clears_callback(void)
+{
+    mock_reset(MODE_NORMAL);
+    cleanup_all();
+    gEventCalls = 0;
+    drive_init_to_read();
+    CHECK(USBMIDI9DispatchTable.setEventCallback(0u, event_callback,
+                                                 7u) == kUSBNoErr);
+
+    /* kNotifyDriverBeingRemoved marks the instance removing and clears
+     * the hook (the read is outstanding, so the removal returns busy). */
+    CHECK(TheClassDriverPluginDispatchTable.notificationProc(
+              kNotifyDriverBeingRemoved, 0, 0u) == kUSBDeviceBusy);
+    CHECK(gUSBMIDI9Instances[0].eventCallback == NULL);
+
+    /* The aborted completion must not invoke the (cleared) hook. */
+    gPendingPB->usbStatus = kUSBAbortedError;
+    gPendingPB->usbActCount = 0;
+    complete_pending();
+    CHECK(gEventCalls == 0u);
+    CHECK(gPendingKind == KIND_NONE);
+}
+
 /* 2. Init failure: find pipe returns kUSBNotFound -> machine stops, no
  * garbage pipe ref; removal can still finalize. */
 static void test_find_failure_stops_machine(void)
@@ -742,6 +831,8 @@ static void test_driver_description_version(void)
 int test_machine_run(void)
 {
     test_happy_path();
+    test_event_callback();
+    test_removal_clears_callback();
     test_find_failure_stops_machine();
     test_sync_completion_init();
     test_sync_completion_read_no_double_submit();
