@@ -1154,7 +1154,8 @@ NOT claimable from this repository. Requires, on the Power Mac G4:
 - [x] The Probe finds `USBMIDI9DispatchTable`, displays the interface
       (vid 0a4d, pid 0090, maxPacket 64), and prints real received bytes
       in hex when keys are played — **done on the G4; exact packets in
-      §9.8** (e.g. `09 90 3C 57`).
+      §9.8** (`09 90 30 50` = Note On C3 vel 80; `09 90 30 00` =
+      velocity-zero Note Off).
 - [ ] Hot unplug of the Keystation while the Probe runs: no crash,
       driver finalizes; replug restores data flow. **Still open.** (The
       §9.9 freeze is an UNRELATED-device hot-plug, a separate item.)
