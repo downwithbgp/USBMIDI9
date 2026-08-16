@@ -21,6 +21,16 @@ Sources (already in the tree; compile-checked on Linux):
 - `oms/oms_rx.c` — receive path (drain -> convert -> 68K bridge)
 - `oms/oms_tx.c` — send hook (chunk re-chunking; transport seam drops)
 - `core/midi_stream.c` — the neutral USB-MIDI stream converter
+- `core/packets.c` — USB-MIDI Event Packet encode/decode
+  (`um9_packet_decode`/`um9_packet_encode`); **REQUIRED membership**:
+  `midi_stream.c` calls both routines, so the OMS PEF target must list
+  `core/packets.c` explicitly — the Linux build composes it
+  automatically (`Makefile` CORE_SRCS), which is why the first G4 link
+  gate failed with `um9_packet_decode`/`um9_packet_encode` undefined
+  (from `um9_rx_packet`/`um9_tx_message` in midi_stream.c) while every
+  host test passed. `packets.h` needs no access-path change: it is
+  included by `midi_stream.h`, which already resolves via
+  `{Project}::core:`.
 - `oms/oms_driver.h` — shared declarations
 
 Access paths (CodeWarrior), **in this order, and nothing else**:
@@ -56,7 +66,30 @@ Libraries: link **`OMS SDK:Libraries:OMSGluePPC.lib`** — the authentic
 CodeWarrior PowerPC OMS glue (SDK `Libraries/README.OMSGlue`: "OMSGluePPC.lib -
 for CodeWarrior PowerPC"). The shim imports `LinkToOMSGlue` and
 `OMSGetCallAddress` through that glue; everything else is provided by
-the OMS system at load time. **`OMSReceivedFromPort` is NOT an import on
+the OMS system at load time. Also link **the USB DDK
+`Libraries/USBManagerLib`** — the CodeWarrior import library that
+exports the four USB Manager calls the shim makes
+(`USBGetNextDeviceByClass`, `USBGetDriverConnectionID`,
+`USBInstallDeviceNotification`, `USBRemoveDeviceNotification`).
+Evidence: (1) the authentic DDK 1.4.1 `Libraries/USBManagerLib` is a
+`Joy!peffpwpc` PPC container whose symbol list (read directly) is
+`USBGetDeviceDescriptor USBGetInterfaceDescriptor
+USBGetDriverConnectionID USBGetNextDeviceByClass
+USBInstallDeviceNotification USBRemoveDeviceNotification
+USBDeviceRefToBusRef USBExpertNotifyParent USBDriverNotify
+USBAddDriverForFSSpec USBAddShimFromDisk USBReferenceToRegEntry` —
+all four shim imports are in it; (2) the real MOTU USB FreeMIDI Driver
+(PEF import list, docs/freemidi-driver-research.md) imports exactly
+`USBGetNextDeviceByClass, USBGetDriverConnectionID,
+USBInstallDeviceNotification, USBRemoveDeviceNotification,
+USBGetDeviceDescriptor` from **USBManagerLib** — a shipping PPC USB
+MIDI driver with the same function set; (3) the shim makes **no USL
+transfer calls** (no USBBulkRead/USBBulkWrite — those stay in the
+low-level class driver), so **USBServicesLib must NOT be added** unless
+a later linker error names a symbol it actually exports. Rev 26
+Ch 6 (p. 183) distinguishes the two: the USB Manager functions come
+from USBManagerLib (USBFamilyExpertLib exports only the expert
+interface). **`OMSReceivedFromPort` is NOT an import on
 PPC**: it is a 68K assembly routine (authentic `OMSDriver.h` declares it
 only `#ifndef powerc` with `#pragma parameter OMSReceivedFromPort(__A1,
 __D0)`; the Spec: "68K assembly language routine", A1 = pkt, D0 =
@@ -94,6 +127,46 @@ Exports (linker): use `codewarrior/USBMIDI9_OMS.exp` — exactly one
 symbol: **`main`** (the driver entry
 `OMSCALLBACK(long) main(short msg, long par1, long par2)`; the Spec's
 documented entry name).
+
+### OMS PEF target manifest (canonical — G4 link gate 2026-08-16)
+
+The first G4 link gate failed with exactly six undefined symbols,
+classified as **CodeWarrior project-definition defects** (not source
+defects — the Linux build/test system composes the same closure
+automatically from the Makefile, so no host test can catch a manually
+created .µ target that lists fewer sources/libraries). The canonical
+membership:
+
+**Sources (5):** `oms/oms_driver.c`, `oms/oms_rx.c`, `oms/oms_tx.c`,
+`core/midi_stream.c`, `core/packets.c`.
+
+**Libraries (imports):** `OMS SDK:Libraries:OMSGluePPC.lib`
+(`LinkToOMSGlue`, `OMSGetCallAddress`), USB DDK
+`Libraries:USBManagerLib` (`USBGetNextDeviceByClass`,
+`USBGetDriverConnectionID`, `USBInstallDeviceNotification`,
+`USBRemoveDeviceNotification`), `InterfaceLib` + the MSL runtime
+libraries from the existing PPC shared-library target (CodeWarrior
+defaults).
+
+**Exports:** `codewarrior/USBMIDI9_OMS.exp` — exactly `main`.
+
+**Must stay OUT of this target:** `oms/oms_driver.r` (Rez'd separately,
+Target B); `core/descriptors.c`, `core/ports.c` (not referenced by the
+shim closure); `classic/usb_driver.c`, `classic/usb_service.c`,
+`classic/ring.c` (the low-level class driver is a separate PEF);
+`USBServicesLib`, `USBPowerClassLib`, `CursorDevicesLib` (no USL
+transfer calls in the shim — add a library only when a linker error
+names a symbol it exports).
+
+Symbol -> provider map for the six gate errors:
+
+| Undefined symbol | Provider |
+|---|---|
+| `um9_packet_decode`, `um9_packet_encode` | `core/packets.c` (missing from target) |
+| `USBGetNextDeviceByClass`, `USBGetDriverConnectionID`, `USBInstallDeviceNotification`, `USBRemoveDeviceNotification` | DDK `Libraries/USBManagerLib` (missing from target) |
+
+Apply both membership changes in the CodeWarrior project (Remove Object
+Code -> Make on the G4). No C source change is required.
 
 ### Target B — resources for the OMS driver file
 
