@@ -1397,7 +1397,8 @@ notification; preserve the now hardware-proven normal receive path.
    [§5.6 item 1 documents these statuses at unplug; the same mechanism
    applies to a same-bus topology change] But the G4's two rear
    external USB ports are on SEPARATE controllers (Apple Power Mac G4
-   Developer Note), so the observed freeze is the other-controller
+   Developer Note, under verification — §7), so the observed freeze is
+   the other-controller
    case: **no completion-status change on the Keystation's read is
    expected** — the driver's completion path was not exercised by the
    event.
@@ -1483,7 +1484,8 @@ and is deferred; the ground rules require preserving the proven path.
    (re-enumeration of the Keystation's own bus aborting the outstanding
    read) is **FALSIFIED for the observed freeze**: the two rear USB
    ports are on separate controllers (Apple Power Mac G4 Developer
-   Note), so no abort of the Keystation's read is expected and the
+   Note, under verification — §7), so no abort of the Keystation's read
+   is expected and the
    driver's completion path was not exercised.
 3. **H3 — probe polling during re-enumeration:** `USBGetNextDeviceByClass`
    walks the USB software's GLOBAL device list (all controllers) at
@@ -1517,8 +1519,8 @@ E4. **SATISFIED\* by the existing test — removed from the pending
     and the Keystation on the other: cross-controller freeze is
     established, so the same-bus abort mechanism (the falsified
     shared-controller form of H2) is not the trigger. (\*Conditional
-    on the Developer Note evidence and the port assignment, confirmed
-    in the setup invariants.)
+    on the Developer Note evidence and the port assignment, to be
+    confirmed per the setup invariants.)
 E5. Unplug-only vs plug-only: does the freeze need both events?
 E6. In any configuration that does NOT freeze: record probe output after
     the event. In the observed cross-controller configuration no abort
