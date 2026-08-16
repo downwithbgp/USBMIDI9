@@ -18,7 +18,7 @@ A **CFM shared library** (PPC) whose **PEF container becomes the `'OMdv'`
 Sources (already in the tree; compile-checked on Linux):
 
 - `oms/oms_driver.c` — the omdv* message dispatch + device registration
-- `oms/oms_rx.c` — receive path (drain -> convert -> OMSReceivedFromPort)
+- `oms/oms_rx.c` — receive path (drain -> convert -> 68K bridge)
 - `oms/oms_tx.c` — send hook (chunk re-chunking; transport seam drops)
 - `core/midi_stream.c` — the neutral USB-MIDI stream converter
 - `oms/oms_driver.h` — shared declarations
