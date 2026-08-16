@@ -32,6 +32,7 @@
 
 #include "usbmidi9_dispatch.h"
 #include "core/midi_stream.h"
+#include "oms/oms_driver.h"   /* constants used by the mocks below */
 
 /* ---- test helpers ---------------------------------------------------- */
 
@@ -67,6 +68,7 @@ static int gNMInstallCalls;
 static int gNMRemoveCalls;
 static NMProcPtr gInstalledNMProc;
 static unsigned long gInstalledNMRefCon;
+static UInt32 gLastNMInstallEventTime;
 
 static OMSPacket gCaptured[64];         /* OMSReceivedFromPort captures */
 static short gCapturedRefNum[64];
@@ -150,6 +152,16 @@ OSErr NMInstall(NMRecPtr nmRecPtr)
 {
     gNMInstallCalls++;
     CHECK(nmRecPtr->nMsg != 0u);        /* the shim stored the proc */
+    /* The timer uses an absolute base: Ticks() + period, and re-arms
+     * with a FIXED += period (a relative 1 would fire back-to-back and
+     * the rate would drift). */
+    if (gNMInstallCalls == 1) {
+        CHECK(nmRecPtr->eventTime == (Ticks() + kUSBMIDI9OMSPollTicks));
+    } else {
+        CHECK(nmRecPtr->eventTime
+              == (gLastNMInstallEventTime + kUSBMIDI9OMSPollTicks));
+    }
+    gLastNMInstallEventTime = nmRecPtr->eventTime;
     gInstalledNMProc = (NMProcPtr)oms_poll_task;
     gInstalledNMRefCon = nmRecPtr->nRefCon;
     return noErr;
@@ -274,6 +286,7 @@ static void mock_setup(unsigned n)
     gNMInstallCalls = 0;
     gNMRemoveCalls = 0;
     gInstalledNMProc = NULL;
+    gLastNMInstallEventTime = 0u;
     gCapturedCount = 0u;
     gTxCapturedCount = 0u;
     gAddedCount = 0u;

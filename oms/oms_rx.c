@@ -29,8 +29,8 @@
 #include "oms_driver.h"
 
 /* Build an OMSPacket for OMSReceivedFromPort from one stream message.
- * OMS continuation bits (OMS.h): a whole-SysEx message gets both
- * omsStartCont and omsEndCont. */
+ * A whole-SysEx message (single packet) is a COMPLETE message and is
+ * delivered with omsNoCont, per the MIDI Manager / OMS convention. */
 static void oms_rx_build_packet(struct oms_port *port,
                                 const unsigned char *data, unsigned len,
                                 unsigned sysex, OMSPacket *pkt)
