@@ -10,19 +10,17 @@ USB-MIDI 1.0 device
 Classic Mac OS USB stack
         |
         v
-classic/usb_driver.c      Classic Mac USB transport (reserved)
+classic/usb_driver.c      Classic Mac USB transport (M1B, G4-verified)
   - device/interface discovery and matching
   - descriptor acquisition
   - bulk endpoint I/O, completions, hotplug/removal
         |
         v
-classic/usb_service.c     USBMIDI9 service boundary (reserved)
-  - internal API for MIDI-system consumers
-        |
+USBMIDI9DispatchTable + core/midi_stream   (M4 service boundary)
         +-------------------+
         |                   |
         v                   v
-oms/oms_driver.c       freemidi/freemidi_driver.c
+oms/oms_driver.c       freemidi/freemidi_driver.c (reserved)
         |                   |
         v                   v
        OMS               FreeMIDI
@@ -57,25 +55,31 @@ remain for anything not yet verified.
 
 ## Service boundary
 
-Reserved. The internal API through which MIDI-system integrations consume
-USB-MIDI devices. Conceptually it will provide:
+The internal API through which MIDI-system integrations consume USB-MIDI
+devices. Since M4 it consists of two verified pieces:
 
-* enumerate devices
-* enumerate logical input/output ports
-* open input / open output
-* receive MIDI events / send MIDI data
-* close port
-* device attach/remove notifications
+- `USBMIDI9DispatchTable` (classic/usbmidi9_dispatch.h, version 0x0001):
+  enumeration, interface info, and polled dequeue of raw bytes — the
+  transport-facing half.
+- `core/midi_stream.{h,c}`: the neutral USB-MIDI stream <-> conventional
+  MIDI message converter (SysEx continuation handling, cable numbers,
+  malformed-CIN policy) — host-tested, shared by the OMS shim and any
+  future FreeMIDI shim.
 
-The actual binary/API mechanism (Component Manager, driver control/status
-calls, Gestalt, shared service, callback table, or something else) is an open
-architectural question — see `docs/research.md`. It will not be chosen merely
-because it resembles a modern Unix/macOS API.
+The binary/API mechanism is the driver-exported dispatch table located via
+`USBGetNextDeviceByClass` + `FindSymbol` (the same mechanism the Probe
+uses and Opcode's own OMS USB Manager uses); see `docs/research.md`.
 
 ## OMS and FreeMIDI (`oms/`, `freemidi/`)
 
-Reserved. OMS integration comes first; FreeMIDI later. Neither may be
-embedded in the portable transport.
+`oms/` is the OMS driver shim: a classic `'OMdv'` OMS driver (creator
+`'USM9'`, `'OMdi'` 128 params, `'OMdv'` 128 PEF code resource) consuming
+`USBMIDI9DispatchTable` + `core/midi_stream`; source gate complete, G4
+hardware gate pending. It contains no USB data-path code.
+
+`freemidi/` remains reserved: the FreeMIDI driver file format is verified
+(`'DDef'`/`'IDvr'`, `'Code'`/`'DDef'` resources) but the driver message
+protocol is not authenticated — see `docs/freemidi-driver-research.md`.
 
 ## Probe (`probe/`)
 

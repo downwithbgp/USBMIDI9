@@ -1,0 +1,137 @@
+USBMIDI9 0.1
+USB-MIDI 1.0 Driver for Mac OS 9
+
+Read Me
+=======
+
+USBMIDI9 is a driver that lets Mac OS 9 use USB-MIDI instruments and
+interfaces: keyboards, sound modules, and other devices that follow
+the USB-MIDI 1.0 standard. When a USB-MIDI device is connected, OMS
+applications can use it as a MIDI input (and, in a future version,
+output) port.
+
+This version is the first release. It has been tested with one
+keyboard on one Macintosh; please read "Compatibility" before
+buying anything on the strength of this Read Me.
+
+System Requirements
+-------------------
+
+- Mac OS 9.0 or later (Mac OS 9.0.4 recommended)
+- A Macintosh with a USB port
+- Opcode OMS 2.3.8 (for using USBMIDI9 with OMS applications)
+- A USB-MIDI 1.0 instrument or interface
+
+About the Files
+---------------
+
+The USBMIDI9 folder contains:
+
+    USBMIDI9                The driver. Copy it to the Extensions
+                            folder inside your System Folder.
+    USBMIDI9 OMS Driver     The OMS driver. Copy it to the OMS
+                            folder inside your System Folder.
+    Read Me                 This file.
+
+Installing USBMIDI9
+-------------------
+
+1. Make sure the USB-MIDI device is NOT connected to your Macintosh.
+2. Copy "USBMIDI9" to the Extensions folder (System Folder:
+   Extensions).
+3. Copy "USBMIDI9 OMS Driver" to the OMS folder (System Folder:
+   OMS Folder).
+4. Restart your Macintosh.
+5. Connect the USB-MIDI device.
+
+To check that the driver is working, run the USBMIDI9 Probe utility
+(if you have it) or open OMS Setup and create a new studio setup;
+OMS Setup should find the USBMIDI9 interface.
+
+Using USBMIDI9 with OMS
+-----------------------
+
+1. Connect the USB-MIDI device and turn it on.
+2. Open OMS Setup and choose New Studio Setup from the File menu.
+   OMS searches the ports; the USBMIDI9 interface appears when the
+   search is finished.
+3. Add the device connected to the USBMIDI9 port, save the studio
+   setup, and make it current.
+4. Open your OMS application and choose the USBMIDI9 port as the
+   MIDI input.
+
+Notes:
+
+- The port is named "USBMIDI9 Port 1"; the name can be changed in
+  OMS Setup.
+- Devices with more than one MIDI cable (multi-port USB-MIDI
+  interfaces) are designed to appear as additional ports; this
+  release has been tested with a single-cable keyboard only.
+
+Removing USBMIDI9
+-----------------
+
+1. Disconnect the USB-MIDI device.
+2. Remove "USBMIDI9" from the Extensions folder and
+   "USBMIDI9 OMS Driver" from the OMS folder. (Drag them to the
+   Trash.)
+3. Restart your Macintosh.
+
+USBMIDI9 keeps no preferences and installs nothing else; removing
+the two files is all that is required.
+
+Known Problems
+--------------
+
+- Removing or adding a USB device while USBMIDI9 is running can, in
+  some cases, freeze the Macintosh. This is being investigated.
+  Workaround: connect and disconnect USB-MIDI devices while the Mac
+  is off, or before the USBMIDI9 driver loads. (This problem is not
+  specific to USB-MIDI devices; it can occur with other USB devices
+  as well.)
+- MIDI output to the USB device is not yet available. The output
+  port appears in OMS, but data sent to it is discarded. A future
+  version will add output.
+
+Compatibility
+-------------
+
+USBMIDI9 matches any USB interface that follows the USB-MIDI 1.0
+standard (interface class 1, subclass 3). It is not restricted to
+one manufacturer or model.
+
+Tested with:
+
+- Mac OS 9.x on a Power Mac G4
+- M-Audio / Evolution Keystation 49e (USB-MIDI 1.0 keyboard)
+
+The driver has NOT been tested with other computers, other system
+software versions, or other USB-MIDI devices. "It works with the
+standard" is not the same as "it works with everything"; please
+report problems.
+
+Version History
+---------------
+
+0.1 (this version)
+
+- First release.
+- OMS input support: OMS Setup finds the interface; OMS
+  applications receive MIDI from the USB device.
+- No MIDI output yet (see Known Problems).
+
+Technical Notes
+---------------
+
+- USBMIDI9 is a class driver: it does not use vendor or product
+  numbers to decide which devices to claim. Any USB-MIDI 1.0
+  interface is matched.
+- The OMS driver (USBMIDI9 OMS Driver) is an OMS driver file
+  (type "OMdv"). It uses the USBMIDI9 driver for all USB traffic
+  and adds no USB code of its own.
+- For best results with USB MIDI, Mac OS 8.6 or later is
+  recommended (OMS 2.3.8's own USB drivers say the same).
+
+This software is provided as-is, without warranty of any kind.
+USBMIDI9 is open source; see the documentation included with the
+developer files for details.

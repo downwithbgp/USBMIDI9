@@ -1,121 +1,75 @@
 # USBMIDI9
 
-Generic USB-MIDI 1.0 class support for Classic Mac OS 9.
+USBMIDI9 is an open-source USB-MIDI 1.0 class driver for Classic Mac OS 9.
+It matches any standards-compliant USB-MIDI interface (interface class 1,
+subclass 3 — no vendor/product restrictions), delivers received MIDI to
+OMS, and is designed so a FreeMIDI driver can be added against the same
+internal service.
 
-**The project is in early development. No working Mac OS 9 driver has been
-released yet: the M1B driver/probe source is written and host
-compile-checked, and the driver builds on real CodeWarrior (Power Mac G4),
-but no USB-MIDI traffic has been validated on real hardware yet.**
+Current status:
 
-USBMIDI9 aims to provide a generic USB-MIDI 1.0 class transport for Mac OS 9:
-a portable, standards-oriented core plus a Classic Mac OS USB transport,
-exposed to MIDI systems first through OMS and later through FreeMIDI. A
-diagnostic utility, "USBMIDI9 Probe", is planned.
+- **M1B hardware gate PASSED** on a real Power Mac G4 (CodeWarrior Pro
+  5.3, Mac OS 9): the driver matched the MIDIStreaming interface, and
+  real Keystation 49e Note On/Off packets (`09 90 30 50` / `09 90 30 00`)
+  were received through the ring buffer and the dispatch API.
+- **M4 OMS source gate**: an OMS driver shim (`'OMdv'` file, creator
+  `'USM9'`) implementing the verified Opcode OMS driver contract exists
+  with host tests. It has NOT yet been run inside OMS on the G4 — that is
+  the next hardware gate.
+- MIDI output is not implemented yet (no USB bulk-OUT path; the OMS send
+  hook drops and counts).
+- FreeMIDI: research only (file format verified; driver protocol not
+  authenticated — no FreeMIDI SDK found).
+- A known hot-plug freeze exists; see `docs/classic-usb-driver.md` §9.9.
 
-## Goals
+One device (M-Audio / Evolution Keystation 49e) has been validated on one
+G4; that is not universal compatibility. See the user-facing `Read Me`
+for the tested configuration.
 
-* Generic USB-MIDI 1.0 class support for Mac OS 9, not a device-specific driver.
-* A portable C core: USB-MIDI descriptor parsing, Event Packet (CIN)
-  decoding, and logical port/cable discovery, testable on Linux.
-* A clean internal service boundary between the transport and MIDI-system
-  integrations (OMS first, FreeMIDI later).
-* USBMIDI9 Probe: a diagnostic tool to inspect devices, descriptors, and
-  live USB-MIDI traffic on the Power Mac G4.
-
-## Current status
-
-* M0 (repository and portable core) is complete: the portable packet
-  decoder, safe descriptor walker, and MIDIStreaming topology parser exist
-  with host tests; CI builds with GCC and Clang.
-* M1A (research/design gate) is complete: the Classic Mac OS USB driver
-  model is verified from primary Apple documentation
-  (`docs/classic-usb-driver.md`).
-* M1B (source gate) is complete: the generic interface class driver
-  (`classic/usb_driver.c`, matching class 0x01/subclass 0x03 with no
-  vendor/product restriction), the resident ring buffer
-  (`classic/ring.c`, host prop-tested), the versioned
-  `USBMIDI9DispatchTable` ABI (`classic/usbmidi9_dispatch.h`), the Probe
-  (`probe/probe.c`), and the CodeWarrior export list
-  (`codewarrior/USBMIDI9.exp`) exist and compile-check on Linux
-  (`make check-classic`).
-* **Real-target build status (Power Mac G4, CodeWarrior Pro 5.3):** the
-  driver (`classic/usb_driver.c`, `classic/ring.c`) builds with **0
-  errors / 43 warnings** and produces an `ndrv`/`usbd` artifact with the
-  expected exports (`TheUSBDriverDescription`,
-  `TheClassDriverPluginDispatchTable`, `USBMIDI9DispatchTable`); the
-  Probe (`probe/probe.c`) compiles, links, and launches on Mac OS 9 as a
-  SIOUX console app. The Probe's no-driver reporting and quit-key
-  handling were corrected from real-G4 findings (see
-  `docs/classic-usb-driver.md` §9.6/§9.7).
-* **No hardware has been demonstrated on Mac OS 9 yet.** The M1B
-  definition of done explicitly requires booting on real Mac OS 9,
-  attaching a real Keystation, and receiving real USB bytes — see the
-  hardware acceptance checklist in `docs/classic-usb-driver.md` §9.5.
-* The OMS driver, FreeMIDI driver, and the service boundary are reserved
-  placeholders. They will not be implemented until the relevant
-  historical APIs are verified from primary Apple/Opcode/MOTU
-  documentation (see `docs/research.md`).
-
-## Hardware
-
-The first validation device is the **Evolution eKeys-49 / Keystation 49e**
-(VID:PID `0a4d:0090`), a class-compliant USB-MIDI 1.0 keyboard. It is a
-validation target, not a hardcoded supported device; the portable core matches
-any interface with `bInterfaceClass = 0x01` (Audio) and
-`bInterfaceSubClass = 0x03` (MIDIStreaming). See `docs/hardware.md`.
-
-## Repository layout
+## Layout
 
 ```text
-core/       portable USB-MIDI core (descriptors, packets, ports) - host-testable
-classic/    Classic Mac OS USB transport: driver, ring, dispatch ABI (M1B)
-oms/        OMS integration driver (reserved)
-freemidi/   FreeMIDI integration driver (reserved)
-probe/      USBMIDI9 Probe diagnostic utility (M1B source)
-tests/      host test suite for the portable core + ring
-fixtures/   device data fixtures (Keystation 49e)
-docs/       architecture, development, hardware, research, roadmap
-codewarrior/ CodeWarrior build artifacts (export list; .mcp created on the G4)
+core/       portable USB-MIDI core: descriptors, event packets, logical
+            ports, and the stream <-> message converter (host-tested)
+classic/    the Classic USB transport: class driver, ring, dispatch ABI
+oms/        OMS driver shim (source gate; uses the dispatch API)
+freemidi/   FreeMIDI shim (reserved; research in docs/)
+probe/      USBMIDI9 Probe diagnostic console utility
+docs/       architecture, research, distribution, roadmap, G4 notes
+spec/       milestone specs (m1b, m4-oms ...)
 ```
 
 ## Building and testing on Linux
 
-The portable core, the ring buffer, and their tests build on any Linux
-machine with a C89 compiler; no Classic Mac OS SDK is needed. The Classic
-driver and probe sources are additionally compile-checked against minimal
-stub headers (`make check-classic`); the real builds happen in
-CodeWarrior on the Power Mac G4.
+The portable core and its tests build with any C89 compiler; the Classic
+sources are compile-checked against stub headers (`make check-classic`);
+real builds happen in CodeWarrior on the Power Mac G4.
 
 ```sh
-make            # build the portable core library and the test binary
-make test       # build and run the unit tests
-make test-sanitize   # build and run under AddressSanitizer + UBSan
-make check-classic  # compile-check classic/usb_driver.c + probe/probe.c
+make                # build the portable core and the test binary
+make test           # run the unit tests
+make test-sanitize  # run under AddressSanitizer + UBSan
+make check-classic  # compile-check the Classic sources
 make clean
 ```
 
-The default compiler is `cc`; use `make test CC=clang` for Clang. CI (GitHub
-Actions) runs both GCC and Clang jobs plus a sanitizer run. See
-`docs/development.md` for details.
+`make test CC=clang` uses Clang. CI runs GCC and Clang plus a sanitizer
+run.
 
-## Classic Mac OS 9 target
+## Documentation
 
-Classic Mac components will initially be built on the Power Mac G4 (e.g.
-Metrowerks CodeWarrior), not cross-compiled on Linux. The target-specific
-layers (`classic/`, `oms/`, `freemidi/`) are intentionally not compiled in the
-Linux build. Before any Classic USB, OMS, or FreeMIDI code is written, the
-exact APIs must be verified from primary historical documentation; open
-research questions are tracked in `docs/research.md`.
-
-## Contribution expectations
-
-* Do not fabricate Classic Mac OS, OMS, or FreeMIDI APIs. If an API has not
-  been verified from primary sources, leave a documented TODO instead.
-* Portable code stays conservative C89/C90, decodes USB fields explicitly
-  little-endian, and treats descriptors/packets as untrusted buffers.
-* Do not commit proprietary SDK material (Apple DDK, OMS SDK, FreeMIDI SDK,
-  vendor driver code). Document where external SDKs must be obtained.
-* Host tests must pass (`make test`) before committing.
+- `Read Me` — the user-facing manual (period style; shipped with the
+  release).
+- `docs/architecture.md` — the layered design.
+- `docs/research.md` — historical research and provenance; the OMS driver
+  API is verified from the Opcode OMS 2.0 SDK, the OMS spec, and period
+  binaries (material stays outside the repo, per `~/research`).
+- `docs/freemidi-driver-research.md` — FreeMIDI findings and open ABI
+  questions.
+- `docs/classic-usb-driver.md` — the Classic USB driver research and the
+  real-G4 hardware log.
+- `docs/distribution.md` — the period-correct release layout.
+- `docs/ROADMAP.md` — milestones and the acceptance matrix.
 
 ## License
 
