@@ -1418,9 +1418,10 @@ and is deferred; the ground rules require preserving the proven path.
 #### 9.9.4 Global/static state audit
 
 - `gUSBMIDI9Instances` / `gUSBMIDI9InstanceCount` are mutated only at
-  system task time (initialize/finalize/notify procs); the completion
-  routine touches only its own instance (PB, ring indices,
-  `lastReadStatus`/`lastReadCount`) [usb_driver.c].
+  system task time in the initialize/finalize procs; the notify proc
+  only sets per-instance flags (`removing`) and never mutates the
+  registry, and the completion routine touches only its own instance
+  (PB, ring indices, `lastReadStatus`/`lastReadCount`) [usb_driver.c].
 - `USBMIDI9DispatchTable` is static data; the probe re-locates it every
   poll and never caches the pointer [probe.c].
 - The only cross-instance behavior — `kNotifyDriverBeingRemoved` marks
