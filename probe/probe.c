@@ -31,7 +31,7 @@
 #include <CodeFragments.h>
 #include <USB.h>
 
-#include "../classic/usbmidi9_dispatch.h"
+#include "usbmidi9_dispatch.h"
 
 /* Exported symbol name of the driver dispatch table. CodeWarrior
  * supports Pascal string literals ("\p..."); other compilers (the Linux
@@ -50,7 +50,8 @@
 #define kProbeMaxInterfaces 8u  /* matches kUSBMIDI9MaxInterfaces */
 #define kProbeDequeueChunk 64u  /* bytes dequeued per interface per poll */
 
-/* Keycode of 'Q' in the ADB/KeyMap encoding (GetKeys). */
+/* Keycode of 'Q' in the ADB/KeyMap encoding (GetKeys): 0x0C per the
+ * classic keycode table (Carbon kVK_ANSI_Q = 0x0C). */
 #define kProbeQuitKeycode 12u
 
 /* Locate the USBMIDI9 driver's exported dispatch table. Returns nil when
@@ -125,43 +126,66 @@ static void ProbePrintHex(const unsigned char *bytes, UInt32 count)
     }
 }
 
-int main(void)
+/* Test one key in the KeyMap using the authentic byte view (Events.h:
+ * KeyMap = UInt32[4], KeyMapByteArray = UInt8[16]; bit N of the map =
+ * keycode N = byte N/8 with mask 0x80 >> (N % 8), bit 0 = MSB of byte 0).
+ * The previous byte-array indexing with 1u << (N % 8) inverted the bit
+ * order and indexed the UInt32 KeyMap as bytes, which the real header
+ * rejects at runtime (wrong key tested). */
+static Boolean ProbeKeyDown(const KeyMap keys, UInt8 keycode)
+{
+    const KeyMapByteArray *bytes = (const KeyMapByteArray *)keys;
+
+    if (keycode >= 128u) {
+        return false;               /* the KeyMap covers keycodes 0..127 */
+    }
+    return ((*bytes)[keycode / 8u] & (0x80u >> (keycode % 8u))) != 0u;
+}
+
+/* Probe poll state, kept by the caller so the poll loop can be driven
+ * from host tests (tests/test_probe.c). */
+struct USBMIDI9ProbeState {
+    UInt32 lastCount;       /* last printed interface count */
+    int noDriverReported;   /* 1 = the no-driver message is on screen */
+};
+
+/* Perform one poll iteration: refresh the driver/interface state, print
+ * state transitions, drain received bytes. Returns nonzero when the
+ * user pressed the quit key.
+ *
+ * State transitions (no spamming): the no-driver message prints on the
+ * first poll without a driver (startup) and again whenever the driver
+ * disappears after having been present. */
+Boolean USBMIDI9ProbePoll(struct USBMIDI9ProbeState *state)
 {
     struct USBMIDI9DispatchTable *table;
-    UInt32 lastCount;                   /* printed when it changes */
     UInt32 count;
     UInt32 i;
+    KeyMap keys;
 
-    printf("USBMIDI9 Probe - USB-MIDI diagnostic for Classic Mac OS 9\n");
-    printf("Press 'q' to quit.\n");
+    GetKeys(keys);
+    if (ProbeKeyDown(keys, kProbeQuitKeycode)) {
+        return true;
+    }
 
-    lastCount = 0xFFFFFFFFu;            /* force first print */
-
-    for (;;) {
-        KeyMap keys;
-        UInt32 finalTicks;
-
-        GetKeys(keys);
-        if ((keys[kProbeQuitKeycode / 8u]
-             & (1u << (kProbeQuitKeycode % 8u))) != 0u) {
-            break;
+    table = ProbeFindDispatchTable();
+    if (table == nil) {
+        if (!state->noDriverReported) {
+            printf("(no USBMIDI9 driver loaded)\n");
+            state->noDriverReported = 1;
         }
-
-        table = ProbeFindDispatchTable();
-        if (table == nil) {
-            if (lastCount != 0xFFFFFFFFu) {
-                printf("(no USBMIDI9 driver: device removed?)\n");
-                lastCount = 0xFFFFFFFFu;
-            }
-        } else if (table->version < kUSBMIDI9DispatchTableVersion) {
+        state->lastCount = 0xFFFFFFFFu; /* reprint the table on reappearance */
+    } else {
+        state->noDriverReported = 0;    /* present: a future absence is reported */
+        if (table->version < kUSBMIDI9DispatchTableVersion) {
             printf("USBMIDI9 driver dispatch table version %lu is too old\n",
                    (unsigned long)table->version);
         } else {
             count = 0u;
             (void)table->enumerateInterfaces(nil, 0u, &count);
-            if (count != lastCount) {
+            if (count != state->lastCount) {
                 ProbePrintInterfaceTable(table, count);
-                lastCount = count;
+                state->lastCount = count;
             }
             for (i = 0u; i < count && i < kProbeMaxInterfaces; i++) {
                 unsigned char bytes[kProbeDequeueChunk];
@@ -174,7 +198,25 @@ int main(void)
                 }
             }
         }
+    }
+    return false;
+}
 
+int main(void)
+{
+    struct USBMIDI9ProbeState state;
+    UInt32 finalTicks;
+
+    printf("USBMIDI9 Probe - USB-MIDI diagnostic for Classic Mac OS 9\n");
+    printf("Press 'q' to quit.\n");
+
+    state.lastCount = 0xFFFFFFFFu;  /* force first interface-table print */
+    state.noDriverReported = 0;     /* report the no-driver state on the first poll */
+
+    for (;;) {
+        if (USBMIDI9ProbePoll(&state) != 0) {
+            break;
+        }
         Delay(kProbePollTicks, &finalTicks);
     }
 

@@ -22,7 +22,7 @@ SAN     := build-san
 
 CORE_SRCS := core/packets.c core/descriptors.c core/ports.c
 RING_SRCS := classic/ring.c
-TEST_SRCS := tests/test_main.c tests/test_packets.c tests/test_descriptors.c tests/test_ring.c tests/test_machine.c
+TEST_SRCS := tests/test_main.c tests/test_packets.c tests/test_descriptors.c tests/test_ring.c tests/test_machine.c tests/test_probe.c
 
 CORE_OBJS := $(CORE_SRCS:%.c=$(BUILD)/%.o)
 RING_OBJS := $(RING_SRCS:%.c=$(BUILD)/%.o)
@@ -62,6 +62,21 @@ $(SAN)/tests/test_machine.o: $(MACHINE_DEPS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CLASSIC_CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
 
+# The probe test compiles probe/probe.c (via #include) against the stub
+# headers with the Classic flags, so it uses the same dependency
+# tracking and -Iclassic (the probe includes "usbmidi9_dispatch.h",
+# resolved through the classic access path, mirroring the G4 project).
+PROBE_DEPS := tests/test_probe.c probe/probe.c classic/usbmidi9_dispatch.h \
+              classic/host-check/*.h
+
+$(BUILD)/tests/test_probe.o: $(PROBE_DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CLASSIC_CFLAGS) -c -o $@ $<
+
+$(SAN)/tests/test_probe.o: $(PROBE_DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CLASSIC_CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
+
 test: all
 	$(BUILD)/test_usbmidi9
 
@@ -80,7 +95,7 @@ $(SAN)/%.o: %.c
 # the Power Mac G4; this only catches C-level errors on Linux.
 # -Wdeclaration-after-statement enforces C89 block layout.
 CLASSIC_CFLAGS := -std=c89 -Wall -Wextra -Werror -Wdeclaration-after-statement \
-                  -I. -Iclassic/host-check
+                  -I. -Iclassic/host-check -Iclassic
 
 check-classic:
 	$(CC) $(CLASSIC_CFLAGS) -c -o $(BUILD)/usb_driver.o classic/usb_driver.c
