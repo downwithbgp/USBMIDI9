@@ -9,6 +9,14 @@
 
 #include "MacTypes.h"
 
+/* Queue element (OSUtils.h): the NMRec's qLink and QELEM.qType. */
+struct QElem {
+    struct QElem *qLink;
+    short qType;
+};
+typedef struct QElem QElem;
+typedef QElem *QElemPtr;
+
 THz SystemZone(void);
 void Delay(UInt32 ticks, UInt32 *finalTicks);
 UInt32 Ticks(void);   /* ticks since startup (OSUtils.h) */

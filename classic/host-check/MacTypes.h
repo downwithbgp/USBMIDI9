@@ -19,6 +19,8 @@ typedef UInt32 OSType;
 typedef SInt32 OSStatus;
 typedef SInt32 OSErr;
 typedef char *Ptr;
+typedef Ptr *Handle;             /* MacTypes.h: handle to a relocatable block */
+typedef UInt8 *StringPtr;        /* MacTypes.h: Pascal string pointer */
 typedef UInt8 Str31[32];   /* Pascal string: length byte + 31 chars */
 typedef UInt8 Str63[64];   /* Pascal string: length byte + 63 chars */
 

@@ -132,6 +132,58 @@ typedef struct USBPB USBPB;
 #define kUSBAnyClass    0xFFFFu
 #define kUSBAnySubClass 0xFFFFu
 #define kUSBAnyProtocol 0xFFFFu
+#define kUSBAnyVendor   0xFFFFu
+#define kUSBAnyProduct  0xFFFFu
+
+/* --- USB Manager device notification (USBManagerLib) ---
+ * Authentic model: Mac OS USB DDK API Reference Rev. 26, Ch 6 "USB
+ * Manager Reference" (p. 185-188), and the verified imports of Opcode's
+ * OMS 2.3.8 OMS USB Manager (USBInstallDeviceNotification /
+ * USBRemoveDeviceNotification from USBManagerLib). The notification
+ * values below are the ones the real OMS USB Manager switches on in its
+ * notification callback (PEF disassembly: 0=AddDevice, 1=RemoveDevice,
+ * 2=AddInterface, 3=RemoveInterface; input filter kNotifyAnyEvent=0xff
+ * per Rev 26 Ch 6). */
+
+typedef UInt8 USBNotificationType;
+
+enum {
+    kNotifyAddDevice        = 0,
+    kNotifyRemoveDevice     = 1,
+    kNotifyAddInterface     = 2,
+    kNotifyRemoveInterface  = 3,
+    kNotifyAnyEvent         = 0xFF
+};
+
+struct USBDeviceNotificationParameterBlock;
+typedef void (*USBDeviceNotificationCallbackProcPtr)(
+    struct USBDeviceNotificationParameterBlock *pb);
+
+struct USBDeviceNotificationParameterBlock {
+    UInt16 pbLength;
+    UInt16 pbVersion;
+    USBNotificationType usbDeviceNotification;  /* in: filter, out: event */
+    UInt8 reserved1;
+    USBDeviceRef usbDeviceRef;
+    UInt16 usbClass;
+    UInt16 usbSubClass;
+    UInt16 usbProtocol;
+    UInt16 usbVendor;
+    UInt16 usbProduct;
+    OSStatus result;
+    UInt32 token;
+    USBDeviceNotificationCallbackProcPtr callback;
+    UInt32 refcon;
+};
+typedef struct USBDeviceNotificationParameterBlock
+    USBDeviceNotificationParameterBlock;
+typedef USBDeviceNotificationParameterBlock *
+    USBDeviceNotificationParameterBlockPtr;
+
+void USBInstallDeviceNotification(USBDeviceNotificationParameterBlock *pb);
+OSStatus USBRemoveDeviceNotification(UInt32 token);
+OSStatus USBGetDriverConnectionID(USBDeviceRef deviceRef,
+                                  CFragConnectionID *connID);
 
 /* --- Driver description and dispatch table (USB.h 1.4.1) --- */
 
