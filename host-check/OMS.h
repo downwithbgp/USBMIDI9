@@ -166,4 +166,16 @@ typedef struct OMSMIDIPacket255 {
 /* OMSReadHook2 (OMS.h) — the send proc an OMS driver returns for a port. */
 TYPEDEF_OMSPROC(void, OMSReadHook2)(OMSMIDIPacket *packet, long readHookRefCon);
 
+/* OMS error type (OMSTypes.h): typedef short OMSErr; */
+typedef short OMSErr;
+
+/* OMS glue API (OMS.h, authentic signatures — OMSAPI(pascal) is empty
+ * on the host). LinkToOMSGlue initializes the glue without sign-in
+ * (Spec: call it from an OMS driver that needs to call OMS);
+ * OMSGetCallAddress returns the 68K address of an internal routine
+ * (callOMSReceivedFromPort = 112, OMSGlueProcs.h); PPC code must call
+ * the returned 68K address via CallUniversalProc (MixedMode.h). */
+extern OMSErr LinkToOMSGlue(void);
+extern long OMSGetCallAddress(short callNum);
+
 #endif /* USBMIDI9_HOST_CHECK_OMS_H */

@@ -4,12 +4,16 @@
  * environment.
  *
  * The shim sources are compiled into this translation unit against the
- * stub headers in host-check/, and every external call the shim
- * makes is intercepted by the mocks below: USBGetNextDeviceByClass,
- * USBGetDriverConnectionID, FindSymbol, GetZone/SetZone/SystemZone
- * (dispatch-table lookup), USBInstallDeviceNotification/
- * USBRemoveDeviceNotification (device lifecycle), OMSReceivedFromPort
- * (input delivery), OMSOpenDriverResFile/OMSCloseDriverResFile.
+ * stub headers in host-check/ (with -Dpowerc, modeling the G4 PPC
+ * target), and every external call the shim makes is intercepted by the
+ * mocks below: USBGetNextDeviceByClass, USBGetDriverConnectionID,
+ * FindSymbol, GetZone/SetZone/SystemZone (dispatch-table lookup),
+ * USBInstallDeviceNotification/USBRemoveDeviceNotification (device
+ * lifecycle), LinkToOMSGlue + OMSGetCallAddress (PPC resolution of the
+ * 68K OMSReceivedFromPort routine), CallUniversalProc (delivery through
+ * the cached routine — the host stub only forwards the two arguments;
+ * real PPC<->68K register dispatch cannot be modeled on the host),
+ * OMSOpenDriverResFile/OMSCloseDriverResFile.
  *
  * Receive is push-based: data delivery is driven by invoking the event
  * callback the shim registered through the fake table's
@@ -28,6 +32,7 @@
  */
 
 #include <stdio.h>
+#include <stdarg.h>
 
 #include <MacTypes.h>
 #include <MacErrors.h>
@@ -36,6 +41,8 @@
 #include <USB.h>
 #include <OMS.h>
 #include <OMSDriver.h>
+#include <OMSGlueProcs.h>       /* callOMSReceivedFromPort = 112 */
+#include <MixedMode.h>          /* CallUniversalProc / ProcInfo */
 
 #include "usbmidi9_dispatch.h"
 #include "core/midi_stream.h"
@@ -196,13 +203,68 @@ OSStatus USBRemoveDeviceNotification(UInt32 token)
     return noErr;
 }
 
-void OMSReceivedFromPort(OMSPacket *pkt, short destRefNum)
+/* Mock of the 68K OMSReceivedFromPort routine — the address the mock
+ * OMSGetCallAddress returns for callOMSReceivedFromPort. The real
+ * routine runs in 68K mode with pkt in A1 and destRefNum in D0 (the
+ * host cannot model that); the wrapper's CallUniversalProc stub just
+ * forwards the two arguments to this function. */
+static void mock_oms_received_from_port(OMSPacket *pkt, short destRefNum)
 {
     if (gCapturedCount < 64u && pkt != NULL) {
         gCaptured[gCapturedCount] = *pkt;
         gCapturedRefNum[gCapturedCount] = destRefNum;
         gCapturedCount++;
     }
+}
+
+/* PPC resolution mocks (OMS.h). gLinkFail makes LinkToOMSGlue return an
+ * error; gCallAddrFail makes OMSGetCallAddress return 0 (no routine). */
+static int gLinkCalls;
+static int gLinkFail;
+static int gCallAddrCalls;
+static short gLastCallNum;
+static int gCallAddrFail;
+
+OMSErr LinkToOMSGlue(void)
+{
+    gLinkCalls++;
+    return (OMSErr)(gLinkFail ? 1 : 0);
+}
+
+long OMSGetCallAddress(short callNum)
+{
+    gCallAddrCalls++;
+    gLastCallNum = callNum;
+    if (gCallAddrFail) {
+        return 0L;
+    }
+    return (long)(Ptr)mock_oms_received_from_port;
+}
+
+/* Host stand-in for the Mixed Mode Manager (MixedMode.h). It cannot
+ * dispatch 68K code with register-based parameters; it records the
+ * arguments and forwards the two parameters to the routine pointer, so
+ * the host tests cover resolution/caching/argument flow but NOT real
+ * PPC<->68K mode switching (that is the G4 hardware gate). */
+static UniversalProcPtr gLastCallProc;
+static ProcInfoType gLastProcInfo;
+static int gCallUniversalCalls;
+
+long CallUniversalProc(UniversalProcPtr theProcPtr, ProcInfoType procInfo, ...)
+{
+    OMSPacket *pkt;
+    short destRefNum;
+    va_list ap;
+
+    gCallUniversalCalls++;
+    gLastCallProc = theProcPtr;
+    gLastProcInfo = procInfo;
+    va_start(ap, procInfo);
+    pkt = va_arg(ap, OMSPacket *);
+    destRefNum = (short)va_arg(ap, int);    /* default promotion */
+    va_end(ap);
+    ((void (*)(OMSPacket *, short))theProcPtr)(pkt, destRefNum);
+    return 0L;
 }
 
 short OMSOpenDriverResFile(OMSSignature driverID)
@@ -330,6 +392,14 @@ static void mock_setup(unsigned n)
     gRegisteredEventRefcon = 0u;
     gSetEventCallbackCalls = 0;
     gCapturedCount = 0u;
+    gLinkCalls = 0;
+    gLinkFail = 0;
+    gCallAddrCalls = 0;
+    gLastCallNum = 0;
+    gCallAddrFail = 0;
+    gCallUniversalCalls = 0;
+    gLastCallProc = NULL;
+    gLastProcInfo = 0u;
     gTxCapturedCount = 0u;
     gAddedCount = 0u;
     gFakeTable.version = kUSBMIDI9DispatchTableVersion;
@@ -956,6 +1026,118 @@ static void test_receive_whole_sysex_single_packet(void)
     CHECK(gCaptured[0].data[1] == 0xF7u);
 }
 
+/* --- PPC 68K bridge (oms_rx_deliver / g_oms.rxRoutine) --------------- */
+
+/* The 68K OMSReceivedFromPort address is resolved exactly once at
+ * omdvInit: LinkToOMSGlue() then
+ * OMSGetCallAddress(callOMSReceivedFromPort), cached in g_oms.rxRoutine. */
+static void test_ppc_rx_routine_resolved(void)
+{
+    mock_setup(1u);
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(gLinkCalls == 1);
+    CHECK(gCallAddrCalls == 1);
+    CHECK(gLastCallNum == callOMSReceivedFromPort);
+    CHECK(g_oms.rxRoutine == (long)(Ptr)mock_oms_received_from_port);
+    CHECK(gCallUniversalCalls == 0);    /* nothing delivered yet */
+}
+
+/* Delivery goes through CallUniversalProc with the cached routine and
+ * the authenticated ProcInfo expression; the wrapper receives the
+ * OMSPacket* and the ioRefNum. */
+static void test_ppc_rx_delivers_via_wrapper(void)
+{
+    static const unsigned char pkt4[4] = { 0x09u, 0x90u, 0x3Cu, 0x40u };
+    /* The authenticated ProcInfo, written out here (OMS Spec 68K entry:
+     * A1 = pkt, D0 = destRefNum; MixedMode.h kRegisterD0 = 0,
+     * kRegisterA1 = 5) so a change in the shim's macro fails this test.
+     * On the G4 (4-byte pointers) this evaluates to 0x2B802; on this
+     * host sizeof(OMSPacket*) is 8 so SIZE_CODE yields 0 for param 1 —
+     * the host cannot validate the real register dispatch. */
+    const ProcInfoType expected =
+        kRegisterBased
+        | REGISTER_ROUTINE_PARAMETER(
+              1, kRegisterA1, SIZE_CODE(sizeof(OMSPacket *)))
+        | REGISTER_ROUTINE_PARAMETER(
+              2, kRegisterD0, SIZE_CODE(sizeof(short)));
+
+    mock_setup(1u);
+    mock_start_midi(0x5A5A);
+
+    mock_queue(0u, pkt4, 4u);
+    mock_data_arrives(0);
+
+    CHECK(gCallUniversalCalls == 1);
+    CHECK(gLastCallProc == (UniversalProcPtr)g_oms.rxRoutine);
+    CHECK(gLastProcInfo == expected);
+    CHECK(gCapturedCount == 1u);
+    CHECK(gCapturedRefNum[0] == (short)0x5A5A);
+    CHECK(gCaptured[0].data[0] == 0x90u);
+    CHECK(gCaptured[0].data[1] == 0x3Cu);
+    CHECK(gCaptured[0].data[2] == 0x40u);
+}
+
+/* Resolution failure disables delivery safely: the drain keeps running
+ * (messages counted) but nothing is delivered and CallUniversalProc is
+ * never called. Two failure modes: LinkToOMSGlue error (OMSGetCallAddress
+ * must NOT be called) and OMSGetCallAddress returning 0. */
+static void test_ppc_rx_resolution_failure_disables(void)
+{
+    static const unsigned char pkt4[4] = { 0x09u, 0x90u, 0x01u, 0x02u };
+
+    /* Mode 1: glue fails. */
+    mock_setup(1u);
+    gLinkFail = 1;
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(gLinkCalls == 1);
+    CHECK(gCallAddrCalls == 0);
+    CHECK(g_oms.rxRoutine == 0L);
+    mock_start_midi(0x100);
+    mock_queue(0u, pkt4, 4u);
+    mock_data_arrives(0);
+    CHECK(g_oms.rxMessages == 1ul);         /* drain ran */
+    CHECK(gCapturedCount == 0u);            /* delivery disabled */
+    CHECK(gCallUniversalCalls == 0);
+
+    /* Mode 2: no routine address. */
+    mock_setup(1u);
+    gCallAddrFail = 1;
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(gLinkCalls == 1);
+    CHECK(gCallAddrCalls == 1);
+    CHECK(g_oms.rxRoutine == 0L);
+    mock_start_midi(0x100);
+    mock_queue(0u, pkt4, 4u);
+    mock_data_arrives(0);
+    CHECK(g_oms.rxMessages == 1ul);
+    CHECK(gCapturedCount == 0u);
+    CHECK(gCallUniversalCalls == 0);
+}
+
+/* The routine address is resolved once at init, never per packet or per
+ * event — the Spec's "best to obtain the address ... rather than
+ * calling it via glue" efficiency contract. */
+static void test_ppc_rx_no_repeat_resolution(void)
+{
+    static const unsigned char g4packets[8] = {
+        0x09u, 0x90u, 0x30u, 0x50u,
+        0x09u, 0x90u, 0x30u, 0x00u
+    };
+
+    mock_setup(1u);
+    mock_start_midi(0x100);
+
+    mock_queue(0u, g4packets, 8u);
+    mock_data_arrives(0);
+    mock_queue(0u, g4packets, 8u);
+    mock_data_arrives(0);
+
+    CHECK(gCapturedCount == 4u);
+    CHECK(gLinkCalls == 1);
+    CHECK(gCallAddrCalls == 1);             /* once total */
+    CHECK(gCallUniversalCalls == 4);        /* once per packet */
+}
+
 static void test_send_hook(void)
 {
     OMSPortID portID;
@@ -1119,6 +1301,10 @@ int test_oms_driver_run(void)
     test_sysex_across_events();
     test_replug_resets_stream();
     test_receive_whole_sysex_single_packet();
+    test_ppc_rx_routine_resolved();
+    test_ppc_rx_delivers_via_wrapper();
+    test_ppc_rx_resolution_failure_disables();
+    test_ppc_rx_no_repeat_resolution();
     test_send_hook();
     test_send_hook_sysex_chunks();
     printf("test_oms_driver: %s\n", g_failures ? "FAIL" : "OK");

@@ -38,8 +38,33 @@
 #include <MacTypes.h>
 #include <OMS.h>
 #include <OMSDriver.h>
+#include <MixedMode.h>          /* CallUniversalProc + the ProcInfo
+                                   constants (UI Universal Interfaces) */
 
 #include "oms_driver.h"
+
+/* Deliver one OMSPacket to OMS. On PPC, OMSReceivedFromPort is a 68K
+ * assembly routine (Spec: A1 = pkt, D0 = sourceIORefNum; may be called
+ * at interrupt level): the authentic OMSDriver.h declares it only
+ * `#ifndef powerc`, and the Spec directs PPC code to obtain the 68K
+ * address via OMSGetCallAddress(callOMSReceivedFromPort) and call it
+ * through CallUniversalProc. The address is resolved once at omdvInit
+ * (oms_driver.c); when resolution failed (g_oms.rxRoutine == 0)
+ * delivery is disabled and the packet is dropped — the drain keeps
+ * running. On 68K the direct call is used (the authentic
+ * `#pragma parameter OMSReceivedFromPort(__A1, __D0)` makes the
+ * compiler pass pkt in A1 and destRefNum in D0). */
+static void oms_rx_deliver(OMSPacket *pkt, short ioRefNum)
+{
+#if defined(powerc)
+    if (g_oms.rxRoutine != 0L) {
+        (void)CallUniversalProc((UniversalProcPtr)g_oms.rxRoutine,
+                                kOMSReceivedFromPortProcInfo, pkt, ioRefNum);
+    }
+#else
+    OMSReceivedFromPort(pkt, ioRefNum);
+#endif
+}
 
 /* Build an OMSPacket for OMSReceivedFromPort from one stream message.
  * A whole-SysEx message (single packet) is a COMPLETE message and is
@@ -141,7 +166,7 @@ void oms_rx_drain(unsigned ifaceIndex, unsigned deliver)
                     continue;       /* OMS does not want this port */
                 }
                 oms_rx_build_packet(port, msg, len, sysex, &pkt);
-                OMSReceivedFromPort(&pkt, port->ioRefNum);
+                oms_rx_deliver(&pkt, port->ioRefNum);
             }
         }
     }

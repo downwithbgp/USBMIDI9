@@ -32,8 +32,10 @@
  *     USBGetNextDeviceByClass walk only as the init fallback.
  *   - receive is push-based: the class driver's read completion invokes
  *     oms_rx_event (dispatch table v0x0002 setEventCallback), which
- *     drains the ring and calls OMSReceivedFromPort (interrupt-level
- *     legal per the Spec).
+ *     drains the ring and delivers via the cached 68K
+ *     OMSReceivedFromPort address (PPC bridge: resolved once at
+ *     omdvInit via LinkToOMSGlue + OMSGetCallAddress, invoked through
+ *     CallUniversalProc; interrupt-level legal per the Spec).
  */
 
 #include <MacTypes.h>
@@ -45,6 +47,8 @@
 #include <OSUtils.h>
 #include <OMS.h>
 #include <OMSDriver.h>
+#include <OMSGlueProcs.h>       /* callOMSReceivedFromPort (authentic
+                                   generated header; SDK Headers/) */
 
 #include "oms_driver.h"
 
@@ -316,6 +320,26 @@ static OSErr oms_init(OMSFile *file)
      * succeeds without hardware; the Spec's only mandated compat-1
      * error is an OMSVersion() < 2.0 check, not hardware presence). */
     (void)oms_locate_dispatch();
+
+    /* PPC: resolve the 68K OMSReceivedFromPort routine at every
+     * omdvInit (each init zeroes g_oms and re-resolves; the glue
+     * tolerates repeated LinkToOMSGlue). The Spec:
+     * drivers call LinkToOMSGlue (glue init without sign-in), then
+     * obtain the routine's address with
+     * OMSGetCallAddress(callOMSReceivedFromPort) — "best to obtain the
+     * address ... rather than calling it via glue"; the returned 68K
+     * address is invoked through CallUniversalProc (oms_rx.c). A
+     * failure (glue error — OMSGetCallAddress is not called — or
+     * address 0) disables receive delivery: the deliver path drops
+     * when rxRoutine is 0 while the ring drain keeps running. On 68K
+     * the direct OMSReceivedFromPort call is used instead and no
+     * resolution is needed. */
+#if defined(powerc)
+    g_oms.rxRoutine = 0L;
+    if (LinkToOMSGlue() == noErr) {
+        g_oms.rxRoutine = OMSGetCallAddress(callOMSReceivedFromPort);
+    }
+#endif
     return 0;
 }
 

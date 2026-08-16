@@ -114,8 +114,12 @@ $(SAN)/%.o: %.c
 # -Icore resolves "midi_stream.h" the same way the G4 project's
 # {Project}::core: access path does (no repo-root include path on the
 # G4 — that would reach host-check/).
+# -Dpowerc models the G4 PPC target: the OMS shim's OMSReceivedFromPort
+# 68K bridge (oms_rx_deliver) and the host-check OMSDriver.h guard
+# switch on `powerc`, exactly like the authentic Opcode headers. There
+# are no other powerc guards in the tree.
 CLASSIC_CFLAGS := -std=c89 -Wall -Wextra -Werror -Wdeclaration-after-statement \
-                  -I. -Ihost-check -Iclassic -Icore
+                  -I. -Ihost-check -Iclassic -Icore -Dpowerc
 
 check-classic:
 	$(CC) $(CLASSIC_CFLAGS) -c -o $(BUILD)/usb_driver.o classic/usb_driver.c

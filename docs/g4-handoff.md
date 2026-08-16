@@ -52,14 +52,25 @@ precompiled-header cache**: the OMS PEF target's `TargetDataMacOS.tdt`
 entry in its Access Paths/PCH state — delete or force-rebuild it so a
 stale PCH cannot resurface the collision.
 
-Libraries: link against nothing OMS-specific — the driver calls OMS via
-`OMSReceivedFromPort`/`OMSOpenDriverResFile`/`OMSCloseDriverResFile`, which
-are provided by the OMS system itself at load time (the OMS runtime
-exports them; the 68k-glue story from the SDK's `OMSDriver.h` does not
-apply to a PPC driver calling them directly — verify with a link test; if
-the linker cannot resolve them, obtain the OMS glue from the SDK's
-`Libraries/` and link it). USB calls (lookup/lifecycle only — **no USL
-transfer calls**):
+Libraries: link **`OMS SDK:Libraries:OMSGluePPC.lib`** — the authentic
+CodeWarrior PowerPC OMS glue (SDK `Libraries/README.OMSGlue`: "OMSGluePPC.lib -
+for CodeWarrior PowerPC"). The shim imports `LinkToOMSGlue` and
+`OMSGetCallAddress` through that glue; everything else is provided by
+the OMS system at load time. **`OMSReceivedFromPort` is NOT an import on
+PPC**: it is a 68K assembly routine (authentic `OMSDriver.h` declares it
+only `#ifndef powerc` with `#pragma parameter OMSReceivedFromPort(__A1,
+__D0)`; the Spec: "68K assembly language routine", A1 = pkt, D0 =
+sourceIORefNum, may be called at interrupt level). The shim resolves it
+once at omdvInit — `LinkToOMSGlue()` then
+`OMSGetCallAddress(callOMSReceivedFromPort)` (= 112, OMSGlueProcs.h) —
+caches the 68K address and invokes it through
+`CallUniversalProc(addr, kRegisterBased |
+REGISTER_ROUTINE_PARAMETER(1, kRegisterA1, SIZE_CODE(sizeof(OMSPacket *)))
+| REGISTER_ROUTINE_PARAMETER(2, kRegisterD0, SIZE_CODE(sizeof(short))))`
+(`<MixedMode.h>` resolves from the Universal Interfaces access path;
+`<OMSGlueProcs.h>` from `OMS SDK:Headers:`). If resolution fails the
+driver still loads and receive delivery is disabled (drain continues).
+USB calls (lookup/lifecycle only — **no USL transfer calls**):
 - `USBGetNextDeviceByClass`, `FindSymbol`, `GetZone`/`SetZone`/`SystemZone`
   (one-time dispatch-table location at OMS lifecycle transitions);
 - `USBGetDriverConnectionID` (attach via the device notification);
@@ -71,8 +82,9 @@ transfer calls**):
   components; see docs/host-check-audit.md). There is no poll task —
   receive is push: the class driver's read completion invokes the shim's
   registered event callback (dispatch table v0x0002 `setEventCallback`),
-  which drains the ring and calls `OMSReceivedFromPort` (interrupt-level
-  legal per the Spec).
+  which drains the ring and delivers each message through the cached
+  68K `OMSReceivedFromPort` address via `CallUniversalProc`
+  (interrupt-level legal per the Spec; see "Libraries" above).
 
 The shim requires the **v0x0002** `USBMIDI9DispatchTable` (the class
 driver must be rebuilt from this tree — the Probe, with its 0x0001
@@ -85,6 +97,8 @@ documented entry name).
 
 ### Target B — resources for the OMS driver file
 
+`oms/oms_driver.r` is **NOT part of the OMS PEF target** (Target A
+compiles the C sources only); it is compiled separately here.
 Compile `oms/oms_driver.r` with Rez (CodeWarrior's or MPW's) to produce
 the resource fork: `'OMdi'` 128 (id 0x7F10, flags 0, compat level 1),
 `'SICN'` 128 (keyboard icon + mask), `'vers'` 1. The `'OMdv'` 128 code

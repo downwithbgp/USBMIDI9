@@ -81,8 +81,18 @@ typedef struct OMSSendParams {
  * OMSReceivedFromPort to pass a received packet to OMS; may be called at
  * interrupt level; OMSPacket.len must be the number of MIDI bytes only
  * for this call; the source is identified by ioRefNum from
- * omdvSetPortReceiveRefNum. */
+ * omdvSetPortReceiveRefNum.
+ *
+ * OMSReceivedFromPort is a 68K assembly routine (A1 = pkt, D0 =
+ * destRefNum); the authentic OMSDriver.h declares it ONLY #ifndef
+ * powerc with `#pragma parameter OMSReceivedFromPort(__A1, __D0)`. PPC
+ * code must NOT reference the symbol: it resolves the address via
+ * OMSGetCallAddress(callOMSReceivedFromPort) and calls it through
+ * CallUniversalProc (see oms_rx.c). The guard below mirrors the
+ * authentic header, so a `-Dpowerc` host build enforces the PPC path. */
+#ifndef powerc
 extern void OMSReceivedFromPort(OMSPacket *pkt, short destRefNum);
+#endif
 extern short OMSOpenDriverResFile(OMSSignature driverID);
 extern void OMSCloseDriverResFile(OMSSignature driverID);
 

@@ -21,8 +21,9 @@
  * task. The class driver's read completion invokes the shim's event
  * callback (dispatch table v0x0002 setEventCallback) at interrupt level
  * right after bytes land in the ring; the callback drains the ring
- * through dequeueBytes and calls OMSReceivedFromPort (interrupt-level
- * legal per the OMS Spec). The Notification Manager is NOT used (its
+ * through dequeueBytes and delivers via the cached 68K
+ * OMSReceivedFromPort address (interrupt-level legal per the OMS Spec;
+ * PPC bridge: OMSGetCallAddress + CallUniversalProc, see oms_rx.c). The Notification Manager is NOT used (its
  * NMInstall/NMRemove are an alert API, not a timer — verified by
  * disassembly of Opcode's own USB components).
  *
@@ -64,6 +65,22 @@
 /* Bytes dequeued per interface per event (16 Event Packets). */
 #define kUSBMIDI9OMSDequeueChunk    64u
 
+/* ProcInfo for the cached 68K OMSReceivedFromPort routine, per the
+ * authenticated ABI: kRegisterBased calling convention, param 1 =
+ * OMSPacket * in A1, param 2 = short destRefNum in D0 (OMS Spec "68K
+ * assembly language routine": A1 -> pkt, D0 = sourceIORefNum; Apple
+ * MixedMode.h: kRegisterD0 = 0, kRegisterA1 = 5; SIZE_CODE/
+ * REGISTER_ROUTINE_PARAMETER verbatim from UI 3.3.2). Evaluates to
+ * 0x2B802 on the G4 (4-byte pointers, sizeof(short)=2); the value on
+ * the Linux host differs (8-byte pointers) — the host cannot validate
+ * real register dispatch (see host-check/MixedMode.h). */
+#define kOMSReceivedFromPortProcInfo \
+    (kRegisterBased \
+     | REGISTER_ROUTINE_PARAMETER( \
+           1, kRegisterA1, SIZE_CODE(sizeof(OMSPacket *))) \
+     | REGISTER_ROUTINE_PARAMETER( \
+           2, kRegisterD0, SIZE_CODE(sizeof(short))))
+
 /* Minimum dispatch table version the shim accepts: it must provide the
  * v0x0002 setEventCallback entry (the receive push hook). A v1 driver
  * is rejected but the shim stays alive for replug. */
@@ -101,6 +118,11 @@ struct oms_state {
                                               remembered, never touched */
     struct oms_iface ifaces[kUSBMIDI9OMSMaxInterfaces];
     struct USBDeviceNotificationParameterBlock notifPb;
+    long rxRoutine;                       /* cached 68K OMSReceivedFromPort
+                                             address (OMSGetCallAddress
+                                             return type, long); 0 =
+                                             unresolved -> receive delivery
+                                             disabled (drain continues) */
     unsigned long rxPackets, rxMessages, rxDropped;
     unsigned long txConverted, txDropped, txMalformed;
     unsigned long relocates;              /* dispatch re-locations */
