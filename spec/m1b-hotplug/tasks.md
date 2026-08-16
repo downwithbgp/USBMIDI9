@@ -79,10 +79,13 @@ Ground rules from the hardware report (all honored by this plan):
 
 Setup invariants: Keystation attached continuously; USBMIDI9 active;
 record probe output before/after each event; force-reboot only when
-frozen. **First:** identify the G4 model (About This Computer / Open
+frozen. **First:** (1) identify the G4 model (About This Computer / Open
 Firmware) so the correct Power Mac G4 Developer Note applies to the
 cross-controller claim (§9.9 topology note; §7 provenance row — capture
-the note's section/URL then).
+the note's section/URL then); (2) record/confirm the physical port
+layout — which rear port holds the Keystation, which port the mouse
+vacated and the keyboard entered — since the cross-controller reading,
+E4-SATISFIED, and the H2 falsification all depend on it.
 
 1. **E1 baseline:** mouse + Keystation, probe running. Unplug mouse;
    plug HID keyboard into the other port. Freeze? (Expected: yes —

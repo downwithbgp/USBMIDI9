@@ -865,7 +865,7 @@ removed, relevant if an abort is used for error recovery.
 | Apple, **USB DDK 1.4.6f12 / USB DDK 1.5.1f1 disk images** | Primary Apple material | ADC CD-ROM Jan 2001 (`USB_DDK_1.4.6f12.img`) and Macintosh Garden `USB_DDK_1.5.1f1.img_.sea_.hqx` (MD5 `53b45e75…bf422e`). Images are FileCrusher/tome-mastered; contents not extractable with standard tools. Local: `~/research/usbddk/` (NOT committed). | Cross-era reference only; contents covered by the 1.4.1 kit |
 | Apple, **MacErrors.h** (Universal Interfaces snapshot) | Primary Apple material | GitHub `msftguy/ssh-rd` @ `a5f3a79daeac5844edebf01916c9613563f1c390`, `_3rd/CF/MacErrors.h` ("QuickTime 7.3"-era UI header; USB error block unchanged since the DDK era). Local: `~/research/usbddk/media/MacErrors.h` (NOT committed). | USB error values (kUSBNoErr, kUSBAbortedError=−6982, kUSBDeviceBusy=−6977, kUSBNotRespondingErr=−6911, …) |
 | Apple USB DDK 1.4.2-specific media | — | **Does not exist**: Apple's change histories (DDK 1.4.1 kit "Mac OS USB Change History", which pre-documents the upcoming 1.4.2 release; Apple "Mac OS USB 1.5.1f1 Change History" page, Wayback capture 2001-06-24) confirm USB 1.4.2 shipped only inside the Mac OS 9 Update (9.0.4), 'usbv' 0x01428000, no API change, no standalone installer. | Resolution of the "USB DDK 1.4.2" open item |
-| Apple Computer, *Power Mac G4 Developer Note* (model-specific note stating the two rear external USB ports are on **separate USB root hubs/controllers**) | Primary Apple doc | Evidence supplied with the M1B hardware report; specific section/URL and a local copy NOT yet recorded (the Developer Note series is archived at `developer.apple.com`; capture pending). The test machine's exact G4 model — which Developer Note applies — is to be confirmed at the next G4 session (see `spec/m1b-hotplug/tasks.md` setup invariants). | §9.9 cross-controller topology conclusion: falsifies the shared-controller form of H2; satisfies experiment E4 |
+| Apple Computer, *Power Mac G4 Developer Note* (model-specific note stating the two rear external USB ports are on **separate USB root hubs/controllers** — claim under verification) | Primary Apple doc | Evidence supplied with the M1B hardware report; specific section/URL and a local copy NOT yet recorded (the Developer Note series is archived at `developer.apple.com`; capture pending). The test machine's exact G4 model — which Developer Note applies — is to be confirmed at the next G4 session (see `spec/m1b-hotplug/tasks.md` setup invariants). | §9.9 cross-controller topology conclusion: falsifies the shared-controller form of H2; satisfies experiment E4 |
 | Inside Macintosh: PowerPC System Software, Ch 3 (Code Fragment Manager) | Secondary Apple doc | Referenced by Rev 26 preface (p. 15); not yet obtained | CFM background (FindSymbol etc.) |
 | USB specification / USB-MIDI 1.0 class spec | Industry spec | usb.org; already used by the portable core | Descriptor/event-packet formats |
 
@@ -1356,11 +1356,12 @@ completion/resubmission.
 USB root hubs/controllers**. The observed freeze therefore occurred
 **cross-controller**: the topology change (mouse unplug / keyboard plug
 on the other rear port — the one not holding the Keystation) happened on
-one controller while the Keystation sat on the other. This
-is evidence, not a hypothesis: the same-bus mechanism (re-enumeration of
-the Keystation's own bus) was NOT in play during the freeze, so no
-completion-status change on the Keystation's outstanding read is
-expected (§9.9.1 item 2) and the shared-controller form of H2 is
+one controller while the Keystation sat on the other (port assignment
+per the hardware report; to be confirmed at the next session — setup
+invariants). This is evidence, not a hypothesis: the same-bus mechanism
+(re-enumeration of the Keystation's own bus) was NOT in play during the
+freeze, so no completion-status change on the Keystation's outstanding
+read is expected (§9.9.1 item 2) and the shared-controller form of H2 is
 falsified (§9.9.6).
 
 **Audit scope and ground rules.** This section records a code/audit pass
