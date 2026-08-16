@@ -1140,7 +1140,8 @@ NOT claimable from this repository. Requires, on the Power Mac G4:
       CodeWarrior as a shared library, merged to file type `'ndrv'`
       creator `'usbd'`, exports from `codewarrior/USBMIDI9.exp`,
       linking USBServicesLib — **done on the G4 (0 errors / 43
-      warnings; see §9.7)**; install in the Extensions folder: pending.
+      warnings; see §9.7)**; installed and loaded on the G4 for the
+      receive-gate run (§9.8).
 - [x] Build the Probe (`probe/probe.c`) as a CodeWarrior console app
       (SIOUX) linking InterfaceLib + USBManagerLib — **done on the G4;
       launches and runs (see §9.7)**.
@@ -1217,7 +1218,8 @@ during M1 bring-up). The artifact is verified on Mac OS 9 as type
 `ndrv`, creator `usbd`, exporting `TheUSBDriverDescription`,
 `TheClassDriverPluginDispatchTable`, `USBMIDI9DispatchTable` via
 `USBMIDI9.exp` (checklist item 1 of §9.5 is complete through the
-build; install and hardware validation remain).
+build; the driver was then installed and loaded on the G4 for the
+receive-gate run — §9.8).
 
 **Probe — builds, links, launches (SIOUX console).** The Probe project
 is Std C Console stationery ("ANSI Console Multi" template), target

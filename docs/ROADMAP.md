@@ -32,8 +32,9 @@ gate done** — on the real G4 the driver matched the MIDIStreaming
 interface, dispatched, and received real USB-MIDI packets
 (`09 90 30 50` / `09 90 30 00`) without hanging
 (`docs/classic-usb-driver.md` §9.5 checklist, §9.8). Open items: the
-Keystation hot-unplug checklist entry, and the unrelated-device hot-plug
-freeze audit (§9.9, plan in `spec/m1b-hotplug/tasks.md`).
+Keystation hot-unplug checklist entry, and hardware isolation of the
+unrelated-device hot-plug freeze (§9.9 audit done; experiments in
+`spec/m1b-hotplug/tasks.md`).
 
 ## M2 — Generic USB-MIDI transport
 
