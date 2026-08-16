@@ -16,9 +16,10 @@
  *   - repeated no-driver polls do not spam
  *   - driver disappearance prints the status again (one transition)
  *   - the quit key uses the authentic KeyMap representation
- *     (KeyMap = UInt32[4] + KeyMapByteArray byte view, bit 0 = MSB of
- *     byte 0): a KeyMap with bit 12 (Q) set quits, the old inverted
- *     (1u << (N % 8)) bit layout does not.
+ *     (KeyMap = UInt32[4] + KeyMapByteArray byte view; bit N = byte
+ *     N/8, mask 1 << (N%8) per the real Mac OS 9 GetKeys, verified on
+ *     the G4): a KeyMap with bit 12 (Q) set quits, the MSB-first
+ *     0x80 >> (N % 8) layout does not.
  *
  * Portable C (C89/C90).
  */
@@ -324,8 +325,9 @@ static void test_driver_disappearance_reports(void)
 }
 
 /* 3. Quit key: the KeyMap is tested through the authentic byte view
- * (bit 12 = byte 1, mask 0x80 >> 4 = 0x08). The old inverted layout
- * (1u << (12 % 8) = 0x10 in byte 1) must NOT quit. */
+ * (bit 12 = byte 1, mask 1 << (12 % 8) = 0x10 — the real Mac OS 9
+ * GetKeys byte representation, verified on the G4). The MSB-first
+ * 0x80 >> (N % 8) layout (0x08 in byte 1) is NOT the Q key. */
 static void test_quit_key_uses_authentic_keymap(void)
 {
     struct USBMIDI9ProbeState st;
@@ -335,12 +337,12 @@ static void test_quit_key_uses_authentic_keymap(void)
 
     /* Bit 12 (Q, 0x0C) set through the KeyMapByteArray view. */
     memset(gMockKeys, 0, sizeof(gMockKeys));
-    ((UInt8 *)gMockKeys)[12u / 8u] = (UInt8)(0x80u >> (12u % 8u));
+    ((UInt8 *)gMockKeys)[12u / 8u] = (UInt8)(1u << (12u % 8u));
     CHECK(USBMIDI9ProbePoll(&st) != 0);        /* quits */
 
-    /* The old inverted bit layout (LSB-first) is NOT the Q key. */
+    /* The MSB-first layout (0x08 in byte 1 = bit 11) is NOT the Q key. */
     memset(gMockKeys, 0, sizeof(gMockKeys));
-    ((UInt8 *)gMockKeys)[1] = 0x10u;
+    ((UInt8 *)gMockKeys)[1] = 0x08u;
     CHECK(USBMIDI9ProbePoll(&st) == 0);        /* does not quit */
 
     /* No key down: does not quit. */

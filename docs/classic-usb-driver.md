@@ -1215,9 +1215,11 @@ stationery must stay excluded from the target (it defines a second
    `keys[k/8] & (1u << (k%8))` test indexed it with an invented
    LSB-first byte layout, so 'q' never quit on the G4. The probe now
    tests the key through the authentic `KeyMapByteArray` byte view
-   (`UInt8[16]`, bit N = byte N/8, mask `0x80 >> (N%8)`, bit 0 = MSB of
-   byte 0; the header's own portable-bit-numbering mechanism). Q stays
-   keycode 0x0C. `classic/host-check/Events.h` now models the real
+   (`UInt8[16]`; for keycode N the real Mac OS 9 `GetKeys` byte
+   representation is byte N/8 with mask `1 << (N%8)` — verified on the
+   G4; the MSB-first `0x80 >> (N%8)` inference was disproved by real
+   hardware). Q stays keycode 0x0C (byte 1, mask 0x10).
+   `classic/host-check/Events.h` now models the real
    `KeyMap`/`KeyMapByteArray` shapes instead of a hiding `UInt8[16]`
    simplification.
 3. **Host regression coverage** (`tests/test_probe.c`, `make test` +

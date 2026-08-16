@@ -10,11 +10,11 @@
 #include "MacTypes.h"
 
 /* GetKeys: the KeyMap is the 128-bit keyboard state as four UInt32s
- * (authentic Events.h). Bit N of the map = keycode N; bit 0 is the MSB
- * of element 0 (big-endian Mac). KeyMapByteArray is the authentic byte
- * view of the same 128 bits: bit N = byte N/8 with mask 0x80 >> (N%8).
- * Modeled exactly on the real header (NOT a UInt8[16] KeyMap — that
- * simplification hid a real bit-indexing bug in the probe). */
+ * (authentic Events.h). KeyMapByteArray is the authentic byte view of
+ * the same 128 bits; for keycode N the real Mac OS 9 GetKeys byte
+ * representation is byte N/8 with mask 1 << (N % 8) (verified on the
+ * G4). Modeled exactly on the real header (NOT a UInt8[16] KeyMap —
+ * that simplification hid a real bit-indexing bug in the probe). */
 typedef UInt32 KeyMap[4];
 typedef UInt8 KeyMapByteArray[16];
 void GetKeys(KeyMap theKeys);

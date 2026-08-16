@@ -127,11 +127,12 @@ static void ProbePrintHex(const unsigned char *bytes, UInt32 count)
 }
 
 /* Test one key in the KeyMap using the authentic byte view (Events.h:
- * KeyMap = UInt32[4], KeyMapByteArray = UInt8[16]; bit N of the map =
- * keycode N = byte N/8 with mask 0x80 >> (N % 8), bit 0 = MSB of byte 0).
- * The previous byte-array indexing with 1u << (N % 8) inverted the bit
- * order and indexed the UInt32 KeyMap as bytes, which the real header
- * rejects at runtime (wrong key tested). */
+ * KeyMap = UInt32[4], KeyMapByteArray = UInt8[16]). For keycode N the
+ * real Mac OS 9 GetKeys byte representation is byte N/8 with mask
+ * 1 << (N % 8) — verified on the G4 (the MSB-first 0x80 >> (N % 8)
+ * inference was disproved by real hardware). The original code indexed
+ * the UInt32 KeyMap as bytes AND inverted the within-byte bit order,
+ * so Q (0x0C: byte 1, mask 0x10) never matched. */
 static Boolean ProbeKeyDown(const KeyMap keys, UInt8 keycode)
 {
     const KeyMapByteArray *bytes = (const KeyMapByteArray *)keys;
@@ -139,7 +140,7 @@ static Boolean ProbeKeyDown(const KeyMap keys, UInt8 keycode)
     if (keycode >= 128u) {
         return false;               /* the KeyMap covers keycodes 0..127 */
     }
-    return ((*bytes)[keycode / 8u] & (0x80u >> (keycode % 8u))) != 0u;
+    return ((*bytes)[keycode / 8u] & (1u << (keycode % 8u))) != 0u;
 }
 
 /* Probe poll state, kept by the caller so the poll loop can be driven
