@@ -86,10 +86,13 @@ resource 'OMdi' (128) {
  * OMS Spec wants pairs, normal and highlighted; OMSDevice.iconID 0).
  * Size and 16x16 format verified against authentic Opcode/Roland OMS
  * drivers (64- and 128-byte SICN 128 resources are all lists of 32-byte
- * 16x16 bitmaps). */
+ * 16x16 bitmaps). Rez body syntax per Apple TN1019 (canonical): the
+ * SICN array field is written with braces and $"..." hex strings. */
 resource 'SICN' (128) {
-    "000000000000000001800180018001800FF01668166810081008100810080FF0",
-    "000000000000000001800180018001801FF81FF81FF81FF81FF81FF81FF81FF8"
+    {
+        $"000000000000000001800180018001800FF01668166810081008100810080FF0",
+        $"000000000000000001800180018001801FF81FF81FF81FF81FF81FF81FF81FF8"
+    }
 };
 
 /* Version resource: 1.0.0d1, development stage, region verUS. The

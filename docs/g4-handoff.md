@@ -193,7 +193,9 @@ in CodeWarrior's Rez settings). Nothing standard is hand-declared:
   authentic `MacTypes.r` (via `Types.r`);
 - `'SICN'` template — authentic `Icons.r` (via `Types.r`): an array of
   32-byte hex strings, one per 16x16 bitmap (element 1 = icon, element
-  2 = mask);
+  2 = mask). Rez body syntax per Apple TN1019 (canonical): the SICN
+  array field is written with braces and `$"..."` hex strings — plain
+  `"..."` strings and missing inner braces fail with `Expected '{'`;
 - `verUS` region code — authentic `Script.r` (via `IntlResources.r` via
   `Types.r`).
 `'OMdi'` has no Apple template (Opcode's own resource): its Rez type is
