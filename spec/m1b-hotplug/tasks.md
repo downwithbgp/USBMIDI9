@@ -91,7 +91,8 @@ E4-SATISFIED, and the H2 falsification all depend on it.
 
 1. **E1 baseline:** mouse + Keystation, probe running. Unplug mouse;
    plug HID keyboard into the other port. Freeze? (Expected: yes —
-   cross-controller freeze already established.)
+   cross-controller freeze already established; conditional on the §7
+   verification.)
 2. **E2 probe off:** driver loaded, Keystation attached, probe NOT
    running. Same topology change. Freeze? (Isolates H3; **the decisive
    experiment** — the probe's global device-list walk is the only

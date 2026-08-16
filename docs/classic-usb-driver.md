@@ -1358,8 +1358,8 @@ USB root hubs/controllers**. The observed freeze therefore occurred
 on the other rear port — the one not holding the Keystation) happened on
 one controller while the Keystation sat on the other (port assignment
 per the hardware report; to be confirmed at the next session — setup
-invariants). This is evidence — pending verification of the Developer
-Note and the port assignment — not a hypothesis: the same-bus mechanism
+invariants). This is recorded evidence — pending verification of the
+Developer Note and the port assignment: the same-bus mechanism
 (re-enumeration of the Keystation's own bus) was NOT in play during the
 freeze, so no completion-status change on the Keystation's outstanding
 read is expected (§9.9.1 item 2) and the shared-controller form of H2 is
@@ -1503,7 +1503,8 @@ and is deferred; the ground rules require preserving the proven path.
 
 E1. Reproduce the baseline (Keystation + mouse, probe running): unplug
     mouse, plug HID keyboard → freeze? (Expected: yes — cross-controller
-    freeze is already established, §9.9 topology note.)
+    freeze is already established, §9.9 topology note; conditional on
+    the §7 verification.)
 E2. Probe NOT running (driver still loaded, Keystation attached): same
     topology change → isolates the probe's polling as a factor. **With
     E4 satisfied this is the decisive experiment for H3** (the probe's
