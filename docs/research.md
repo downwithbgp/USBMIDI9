@@ -152,33 +152,138 @@ the header constant is `kUSBNotRespondingErr`), `kUSBOverRunErr`=-6908,
       `USBGetNextDeviceByClass` + `FindSymbol`, hotplug via
       `USBInstallDeviceNotification` (Rev 26 Ch 4 p. 73-74, 83-85;
       Ch 6 p. 179, 185-187). See `docs/classic-usb-driver.md` §5.7.
+- [x] OMS/FreeMIDI shim design — M4: the OMS shim is a classic `'OMdv'`
+      OMS driver (verified contract, see OMS section above) consuming the
+      same `USBMIDI9DispatchTable`; the neutral layer gains a host-tested
+      USB-MIDI stream ⇄ MIDI message converter (`core/midi_stream.{h,c}`).
+      FreeMIDI: research-only until the driver protocol is authenticated
+      (see FreeMIDI section and `docs/freemidi-driver-research.md`).
 - [ ] Whether the mechanism must be a CFM shared library, a system
       extension, or both — driver is a CFM 'ndrv'/'usbd' extension
-      (verified); the OMS/FreeMIDI compatibility-shim form is deferred to
-      M4/M6.
-- [ ] OMS/FreeMIDI shim design — deferred (no OMS API design in M1A).
+      (verified); the OMS driver is an `'OMdv'` file whose code resource
+      contains a PEF container (Roland driver verified; CodeWarrior
+      construction validated on the G4).
 
 ## OMS
 
-- [ ] Exact OMS SDK/API version and its availability (Opcode).
-- [ ] OMS driver discovery/loading mechanism: how OMS finds third-party
-      drivers.
-- [ ] OMS MIDI receive/send semantics: buffers, scheduling, port model.
-- [ ] OMS timing semantics: driver timing model, clock resolution.
-- [ ] OMS SDK/header redistribution terms.
+**M4 research gate PASSED.** Primary material obtained (all OUTSIDE this
+repository; exact provenance, hashes, and extraction notes in
+`~/research/oms/PROVENANCE.md`):
+
+1. **Opcode OMS 2.0 SDK (28-Jan-98)** — from the Opcodeusers Yahoo Group via
+   Macintosh Garden (`OMS_SDK.sit`, MD5 `33e43e0c973fe0c667ed7613fff88800`):
+   `OMS.h`, `OMSDriver.h` (the driver API), `OMSDrvUPPs.h` (pascal UPP
+   info), `OMSTypes.h`, the OMS Programming Interface spec (Mar 1995, Word
+   for Mac; converted), and the complete `SampleDriver - SampleCell`
+   example with its `'OMdi'`/`'OMdv'`-bearing resource fork.
+2. **OMS 2.3.8 full installer** — Internet Archive
+   `evolution-ekeys37-cdrom` (eKeys 37 CD: `Install OMS 2.3.8`, VISE;
+   `Driver Installation Guide.pdf`) + Macintosh Garden
+   `Install_OMS_2_3_8.sit`. Extracted with `unvise`; component inventory
+   with Finder type/creator, driver resource forks, the OMS INIT, OMS Setup,
+   the **USB OMSMIDIDriver** (`ndrv`/`usbd`) and **OMS USB Manager**
+   (`shlb`, creator `'OMdv'`) PEF binaries.
+3. **Roland SC-8850 USB OMS driver** (Dec 1999; archive.org
+   `roland-sc-8850-driver-tools`) — a real third-party `'OMdv'` driver
+   (`'RdSU'`) whose `'OMdv'` code resource contains a **PEF container
+   (PPC code)**.
+
+Verified facts (each traces to the SDK headers/spec, the 2.3.8 binaries, or
+the Roland driver; full table in `spec/oms/requirements.md`):
+
+- Driver file: type `'OMdv'`, unique creator = driver signature, located in
+  **System Folder:OMS Folder** (`kOMSFolder='OMS '`).
+- Resources: `'OMdi'` 128 = `OMSDriverParams` (id, flags, reservedFlags,
+  **driverCompatibilityLevel**); `'OMdv'` 128 = code (68k in Opcode's own
+  drivers; **PPC PEF container** in Roland's); `'SICN'` 128 = icons;
+  plus BNDL/FREF/vers/signature-type resource.
+- Entry: `OMSCALLBACK(long) main(short msg, long par1, long par2)`, pascal,
+  via UPPs (`kPascalStackBased`) in CFM builds; messages omdvInit .. 42
+  (omdvInit, omdvDispose, omdvAddDevices, omdvConfigure, omdvSetInterfaceList,
+  omdvStartMIDI, omdvStartMIDI2, omdvStopMIDI, omdvGetPortSendProc,
+  omdvOutputRemoved, omdvSetPortReceiveRefNum, omdvTestDevice,
+  omdvDifferentStudioSetup, omdvConnectsChanged).
+- Registration: zero `OMSDevice`; whichOut, ownerDriver, flags1
+  (kInConnected|kIsReceiver|kIsMultitimbral), flags2 (kIsMIDIInterface|
+  kNoChildDevices), midiChannels=0xFFFF, devName/manuf/model, iconID,
+  driverSpecific[4]; add via `CallOMSDvrAdd1DevProc1(add1Device, &dev,
+  sizeof(dev))` (compat level ≥ 1).
+- Output: omdvGetPortSendProc returns `OMSSendParams{proc=OMSReadHook2UPP,
+  paramD0, paramD1}`; the send proc **may be called at interrupt level**;
+  paramD0 = readHookRefCon, low word of paramD1 → pkt->appConnRefCon.
+- Input: driver formats `OMSPacket` (6-byte header: flags, len incl.
+  header, srcIORefNum, appConnRefCon) or `OMSMIDIPacket` (+ beatTimeStamp,
+  smpteTimeStamp; len = data bytes) with SysEx continuation flags
+  (omsContMask: start/cont/end), optionally stamps
+  `OMSTimerGetOMSClockPosition()`/`OMSTimerGetOMSSMPTETime()`, and delivers
+  via **`OMSReceivedFromPort(pkt, ioRefNum)`** (interrupt-safe; len = data
+  bytes only for this call).
+- compat level 1 = OMS 2.0+ interface; OMS 2.3.8 loads such drivers (its
+  own 2.3.8 drivers use exactly this mechanism; the INIT references
+  'OMdv'/'OMdi'/'SICN').
+- OMS 2.3.8's own USB architecture (period precedent for ours): USB
+  OMSMIDIDriver (`ndrv`/`usbd`, exports `TheUSBMIDIInterface` +
+  `TheMIDIClassDispatchTable`) + OMS USB Manager (`shlb`, creator `'OMdv'`,
+  exports `TheOMSUSBManagerDispatchTable`, imports USBGetNextDeviceByClass/
+  USBGetDriverConnectionID/FindSymbol).
+
+**Remaining OMS unknowns** (documented, not guessed): how OMS loads the
+shlb-form USB Manager (loading contract unverified — we use the fully
+verified `'OMdv'` form); the exact header of the PEF-in-`'OMdv'` resource
+(inferred "0000 <len>" layout; validated on the G4 against the Roland
+binary).
 
 ## FreeMIDI
 
-- [ ] Exact FreeMIDI SDK/API (MOTU) and its availability.
-- [ ] FreeMIDI driver discovery/loading mechanism.
-- [ ] FreeMIDI MIDI receive/send and timing semantics.
-- [ ] FreeMIDI SDK/header redistribution terms.
+**M4 research gate PARTIAL (file format + architecture verified; driver
+message protocol NOT authenticated — research-only, no implementation).**
+Primary material (provenance in `~/research/oms/PROVENANCE.md`):
+
+1. **FreeMIDI 1.45 full installer** (Sept 2000; Macintosh Garden,
+   `Install_FreeMIDI_1.45.sit`, MD5 `f6e55588fb68925fd74f34614d4b8f8d`);
+   extracted with `unvise`.
+2. **Roland SC-8850 USB FreeMIDI driver** (Nov 1999; archive.org
+   `roland-sc-8850-driver-tools`, `sc8850_usb_fm_v20e.hqx`) + its README.
+3. **MOTU USB FreeMIDI Driver** binary (from 1.45).
+
+Verified facts (full table in `spec/oms/requirements.md`):
+
+- FreeMIDI system = "FreeMIDI System Extension" (INIT), "FreeMIDI Setup"
+  (APPL/FMSs), "FreeMIDI PowerPlug" (`shlb`/`FMS_` — glue importing ~200
+  `FMS*` entry points incl. FMSGetPortInterface/FMSSetPortInterface/
+  FMSReadInputQueue/FMSSendMidi/FMSGetDriverInfo), and a **FreeMIDI Folder**
+  (inside the System Folder) holding the drivers.
+- FreeMIDI drivers: type **`'DDef'`** (hardware/softsynth; creators e.g.
+  `mUSB`, `SCCd`, `APPd`, `Digi`, `FMss`) or **`'IDvr'`** (serial
+  interfaces; `StdD`, `OS4d`, `MUxp`, `MTPd`, ...); resource-fork-only.
+  Driver resources: **`'Code'`** (code — PEF container verified), **`'DDef'`**
+  (params), signature-type resource, icons, BNDL/FREF, vers.
+- Driver model: InterfaceDriver → PortDriver → MIDIPort; the System
+  Extension's `NewStyleOutputChannel` does cable-byte output
+  (DriverGetBuffer/SendNextCableByte); the MOTU USB FreeMIDI Driver exports
+  `TheMOTUShimInterface` and finds the `ndrv`/`usbd` class driver via the
+  USB Manager API + Name Registry + FindSymbol.
+- Coexistence: FreeMIDI 1.4x can use OMS 2.0+ as a backend, ships an "OMS
+  Emulator" and its own OMS drivers (`'OMdv'`/`MOTU`, `'OMdv'`/`mUSB`).
+
+**UNVERIFIED (blocks implementation)**: the FreeMIDI driver message protocol
+(what FreeMIDI sends to a `'DDef'` driver's `'Code'` entry; the `'DDef'`
+params layout; the receive call). No FreeMIDI SDK was found (archive.org
+search: 0 hits; no SDK folder in the 1.42–1.45 installers). Would require
+disassembly of the FreeMIDI System Extension or an SDK acquisition. See
+`docs/freemidi-driver-research.md`.
 
 ## Period drivers
 
-- [ ] Behavior of existing period USB MIDI drivers (MOTU, Roland, Yamaha,
+- [x] Behavior of existing period USB MIDI drivers (MOTU, Roland, Yamaha,
       Opcode, etc.): how they enumerate, how they present ports to OMS and
-      FreeMIDI, and how they handle hotplug.
+      FreeMIDI, and how they handle hotplug. — M4: Opcode OMS 2.3.8
+      (ndrv + OMS USB Manager shlb + dispatch-table exports), Roland
+      SC-8850 (ndrv + `'OMdv'` OMS driver with PEF code + `'DDef'` FreeMIDI
+      driver), MOTU FreeMIDI 1.45 (ndrv + DDef/IDvr drivers + PowerPlug
+      glue). All documented in the OMS/FreeMIDI sections above and in
+      `~/research/oms/PROVENANCE.md`. Hot-plug behavior of those drivers is
+      not documented in the sources we hold (out of scope for M4).
 
 ## Source standards
 
