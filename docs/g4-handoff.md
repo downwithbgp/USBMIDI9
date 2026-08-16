@@ -137,6 +137,13 @@ automatically from the Makefile, so no host test can catch a manually
 created .µ target that lists fewer sources/libraries). The canonical
 membership:
 
+**G4 status (2026-08-16): PEF gate PASS** — the OMS PEF target links on
+the real G4: **0 errors, 43 warnings** (CodeWarrior's usual
+unsigned/short-conversion noise; none in the shim's contract surface).
+The only membership changes needed were the two below (core/packets.c +
+USBManagerLib); no C/ABI change was required or made after the source
+gates.
+
 **Sources (5):** `oms/oms_driver.c`, `oms/oms_rx.c`, `oms/oms_tx.c`,
 `core/midi_stream.c`, `core/packets.c`.
 
@@ -178,6 +185,24 @@ the resource fork: `'OMdi'` 128 (id 0x7F10, flags 0, compat level 1),
 resource is the PEF container from Target A — add it to the resource fork
 as a data resource (see "The 'OMdv' resource" below).
 
+**Resource gate (2026-08-16):** `oms/oms_driver.r` now starts with
+`#include "Types.r"` — the authentic Universal Interfaces 3.3.2 Rez
+preamble (resolved from the Universal Interfaces RIncludes access path
+in CodeWarrior's Rez settings). Nothing standard is hand-declared:
+- `'vers'` template + `development/alpha/beta/final` stage constants —
+  authentic `MacTypes.r` (via `Types.r`);
+- `'SICN'` template — authentic `Icons.r` (via `Types.r`): an array of
+  32-byte hex strings, one per 16x16 bitmap (element 1 = icon, element
+  2 = mask);
+- `verUS` region code — authentic `Script.r` (via `IntlResources.r` via
+  `Types.r`).
+`'OMdi'` has no Apple template (Opcode's own resource): its Rez type is
+declared in the file with the exact `OMSDriverParams` layout
+(short id + 2 × OMSBool + 2 × short + 2 × byte + 6 reserved bytes = 16
+bytes, no padding). If Rez complains about `Types.r` not found, add the
+Universal Interfaces `RIncludes` folder to the Rez search path (same
+folder that provides the C headers' `CIncludes`).
+
 ### Assembling the OMS driver file
 
 The final `USBMIDI9 OMS Driver` file (resource-fork only):
@@ -213,22 +238,30 @@ Roland drivers use them).
 
 ## Gate order (test on the G4, in this order)
 
-1. **Probe regression**: the existing Probe still enumerates and receives
+0. **PEF link gate — PASS (2026-08-16)**: OMS PEF target builds and
+   links: 0 errors, 43 warnings. Membership per the manifest above.
+1. **Resource-assembly gate — CURRENT**: Rez `oms/oms_driver.r` (with
+   the authentic `Types.r` preamble) -> `'OMdi'` 128 + `'SICN'` 128 +
+   `'vers'` 1; append the Target-A PEF as `'OMdv'` 128 (see "The 'OMdv'
+   resource" below); set Finder type `'OMdv'` / creator `'USM9'`; name
+   `USBMIDI9 OMS Driver`; install in System Folder:OMS Folder. Then
+   continue with the runtime gates:
+2. **Probe regression**: the existing Probe still enumerates and receives
    Keystation packets (nothing broke — the Probe's 0x0001 minimum accepts
    the v0x0002 driver).
-2. **OMS driver loads**: install `USBMIDI9 OMS Driver` in the OMS Folder;
+3. **OMS driver loads**: install `USBMIDI9 OMS Driver` in the OMS Folder;
    open OMS Setup → File → New Studio Setup → the interface search finds
    "USBMIDI9 Port 1" (the SICN icon should appear). The driver must load
    with or without the Keystation attached (omdvInit no longer fails on a
    missing device).
-3. **OMS receives MIDI**: in OMS Setup, create the studio setup with the
+4. **OMS receives MIDI**: in OMS Setup, create the studio setup with the
    Keystation connected to "USBMIDI9 Port 1"; open an OMS application
    (ReBirth RB-338 is the acceptance target) and play the keyboard. If
    OMS Setup's Test Studio mode exists (omdvTestDevice), click the device
    there first. Receive is push-based (class driver → event callback →
    OMSReceivedFromPort); there is no poll task to observe.
-4. **ReBirth acceptance**: Keystation -> USBMIDI9 -> OMS -> ReBirth.
-5. **Hot-plug**: with MIDI running, unplug/replug the Keystation. The
+5. **ReBirth acceptance**: Keystation -> USBMIDI9 -> OMS -> ReBirth.
+6. **Hot-plug**: with MIDI running, unplug/replug the Keystation. The
    shim learns of the removal via the USB Manager notification
    (kNotifyRemove*) and drops the cached dispatch pointer; on replug the
    add notification re-attaches (no device-list walk). Re-open the OMS
@@ -247,7 +280,7 @@ Roland drivers use them).
    notification callback on the G4; the fallback (drop the table on any
    kNotifyRemove* when no other USBMIDI9 is attached) is a one-line
    change.
-6. **Output**: NOT testable yet (the send hook drops; the bulk-OUT path
+7. **Output**: NOT testable yet (the send hook drops; the bulk-OUT path
    is a separate milestone — `TODO(oms-output)`).
 
 If the driver is not discovered by OMS Setup, capture: the driver file's
