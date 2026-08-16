@@ -35,6 +35,7 @@
 
 #include <MacTypes.h>
 #include <MacErrors.h>
+#include <DriverServices.h>
 #include <USB.h>
 
 #include "usb_driver.h"
@@ -56,6 +57,8 @@ static UInt32 gUSBMIDI9InstanceCount;
 static void USBMIDI9InitParamBlock(usbmidi9_instance *inst, USBReference ref);
 static void USBMIDI9InitiateTransaction(usbmidi9_instance *inst);
 static void USBMIDI9CompletionProc(USBPB *pb);
+static OSStatus USBMIDI9SecondaryUSBBulkRead(void *pb, void *result);
+static OSStatus USBMIDI9SafeUSBBulkRead(usbmidi9_instance *inst);
 static void USBMIDI9FillInterfaceInfo(const usbmidi9_instance *inst,
                                       struct USBMIDI9InterfaceInfo *out);
 static usbmidi9_instance *USBMIDI9ClaimInstance(void);
@@ -93,6 +96,39 @@ static void USBMIDI9InitParamBlock(usbmidi9_instance *inst, USBReference ref)
     inst->pb.usbOther = 0;
     inst->pb.usbStatus = kUSBNoErr;
     inst->pb.usbCompletion = USBMIDI9CompletionProc;
+}
+
+/* ------------------------------------------------------------------ */
+/* Safe bulk-read submission, modeled on the DDK 1.4.1                 */
+/* PrinterClassDriver/USBModem SafeUSBBulkRead pattern.                */
+/*                                                                    */
+/* The authentic samples gate on USB version (Gestalt 'usbv' < 1.2);  */
+/* that gate is inert on the G4 (USB >= 1.2), so this driver gates on  */
+/* the execution level instead — the DDK-documented generic mechanism  */
+/* (Rev 26 p. 102): completion context is not guaranteed (secondary    */
+/* interrupt or system task level); CurrentExecutionLevel() discovers  */
+/* it; CallSecondaryInterruptHandler2 continues at secondary interrupt */
+/* level. The resubmission from USBMIDI9CompletionProc must not        */
+/* re-enter USBBulkRead directly from completion context.              */
+/* ------------------------------------------------------------------ */
+
+static OSStatus USBMIDI9SecondaryUSBBulkRead(void *pb, void *result)
+{
+    *(OSStatus *)result = USBBulkRead((USBPB *)pb);
+    return noErr;
+}
+
+static OSStatus USBMIDI9SafeUSBBulkRead(usbmidi9_instance *inst)
+{
+    OSStatus result;
+
+    if (CurrentExecutionLevel() != kTaskLevel) {
+        CallSecondaryInterruptHandler2(USBMIDI9SecondaryUSBBulkRead, nil,
+                                       &inst->pb, &result);
+    } else {
+        result = USBBulkRead(&inst->pb);
+    }
+    return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -161,7 +197,7 @@ static void USBMIDI9InitiateTransaction(usbmidi9_instance *inst)
             inst->pb.usbBuffer = inst->readBuffer;
             inst->pb.usbReqCount = inst->maxPacketSize;
             inst->pb.usbRefcon |= kCompletionPending;
-            err = USBBulkRead(&inst->pb);
+            err = USBMIDI9SafeUSBBulkRead(inst);
             break;
 
         default:

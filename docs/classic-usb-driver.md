@@ -1,9 +1,14 @@
 # Classic Mac OS USB Driver — Research and Design (M1A + M1B)
 
-Status: **M1A research/design gate complete; M1B source gate complete.**
-The driver and probe source now exist (`classic/usb_driver.c`,
-`probe/probe.c`, see §9) and are compile-checked on Linux against stub
-headers (`make check-classic`); they are NOT yet validated on hardware —
+Status: **M1A research/design gate complete; M1B source gate complete;
+first real-hardware run done (G4).** The driver and probe source exist
+(`classic/usb_driver.c`, `probe/probe.c`, see §9) and are compile-checked
+on Linux against stub headers (`make check-classic`). On the real Power
+Mac G4, generic MIDIStreaming interface matching, driver loading,
+dispatch/enumeration PASSED; the first bulk-read path run caused a hard
+system hang (completion-context re-entry into `USBBulkRead`), fixed by
+the execution-level-gated safe bulk-read helper (§9.8). Bulk receive is
+NOT yet passed on hardware —
 the M1B hardware acceptance checklist is §9.5. Everything below is sourced
 from primary historical Apple documentation; assertions carry a citation of
 the form
@@ -969,11 +974,23 @@ demonstrates each:
 Context rule preserved (unchanged from §1.6): USB completion execution
 context is **not guaranteed** (secondary interrupt or task level); the
 completion routine and everything it touches must be valid at both levels.
-The DDK's own PrinterClassDriver demonstrates the mitigation for USL calls
-made from a completion context: `SafeUSBBulkRead` checks the execution
-level and, when at secondary interrupt time, re-enters the USL via
-`CallSecondaryInterruptHandler2(SecondaryUSBBulkRead, nil, pb, &result)`.
-[PrinterClassDriver.c; Rev 26 Ch 5, p. 102]
+Rev 26 Ch 5 (p. 102) documents the mechanism: the driver services call
+`CurrentExecutionLevel` discovers the current execution level (returning
+`kHardwareInterruptLevel` / `kSecondaryInterruptLevel` / `kTaskLevel`),
+and `CallSecondaryInterruptHandler2` continues execution at secondary
+interrupt level. The DDK's PrinterClassDriver and USBModem implement the
+mitigation for `USBBulkRead`/`USBBulkWrite` as `SafeUSBBulkRead`, which
+gates on **USB version** — `Gestalt('usbv') < kUSBv12` (0x01200000) — and
+only then re-enters the USL through
+`CallSecondaryInterruptHandler2(SecondaryUSBBulkRead, nil, pb, &result)`;
+the secondary handler writes `*(OSStatus*)result = USBBulkRead(pb)` and
+the trampoline's own return is ignored. [PrinterClassDriver.c;
+USBModem/ModemDriver.c; Rev 26 Ch 5, p. 102] *Correction (M1B read-path
+fix): an earlier version of this note said SafeUSBBulkRead "checks the
+execution level" — the samples actually check the USB version. USBMIDI9
+gates on the execution level instead (§9.8), because the version gate is
+inert on the G4 (USB ≥ 1.2) and the read-path hang is a
+completion-context re-entry failure.*
 
 ### 8.3 Corrections applied to this document (M1A.1)
 
@@ -1007,7 +1024,11 @@ level and, when at secondary interrupt time, re-enters the USL via
 
 ## 9. M1B implementation (source gate)
 
-Status: **source gate complete; hardware gate NOT attempted.** All
+Status: **source gate complete; hardware gate attempted — generic
+interface matching and dispatch/enumeration PASSED on the real G4; bulk
+receive NOT YET PASSED** (the first read-path run caused a hard system
+hang; the completion-context bulk-read re-entry fix is §9.8, pending a
+re-run on hardware). All
 patterns re-verified against the authentic DDK 1.4.1 kit during
 implementation (sample files listed per claim below).
 
@@ -1232,3 +1253,65 @@ The probe is now expected to launch with no driver installed, print
 `(no USBMIDI9 driver loaded)`, and quit on 'q'. The remaining M1B
 hardware gate is §9.5 items 2+ (install driver, attach Keystation,
 receive real USB-MIDI bytes).
+
+### 9.8 M1B read-path fix — safe bulk-read submission (real-G4 hang)
+
+**Hardware record (real Power Mac G4, Mac OS 9):**
+
+| M1B hardware item | Result |
+|---|---|
+| Generic MIDIStreaming interface matching (composite Keystation, iface 1, class 01/subclass 03) | **PASSED** — `Attached USB-MIDI interfaces: 1`, vid=0A4D pid=0090, maxPacket=64 |
+| Driver loading / USBConfigureInterface / USBFindNextPipe | **PASSED** — bulk IN pipe found, MaxPacketSize 64 |
+| Dispatch table location + enumerate/getInfo via Probe | **PASSED** — probe printed the interface table |
+| Bulk receive (first read path) | **NOT YET PASSED** — immediately after the table print the machine became hard-unresponsive (no Q response, no Cmd-Opt-Esc); forced reboot. Treated as a driver/interrupt-context failure, not a Probe UI hang. |
+
+**Root cause.** `USBMIDI9CompletionProc` resubmits reads by calling
+`USBMIDI9InitiateTransaction()`, whose `kReadBulkInPipeState` case called
+`USBBulkRead(&inst->pb)` directly — including when the completion runs at
+secondary interrupt level (completion context is not guaranteed; Rev 26
+p. 102). Re-entering `USBBulkRead` from its own completion context is the
+documented hazard the DDK samples mitigate.
+
+**Fix (committed).** An execution-level-gated safe bulk-read helper in
+`classic/usb_driver.c`, modeled on the authentic PrinterClassDriver /
+USBModem `SafeUSBBulkRead` pattern:
+
+* `USBMIDI9SafeUSBBulkRead(inst)`: at task level (`CurrentExecutionLevel()
+  == kTaskLevel`) calls `USBBulkRead` directly; from any other level
+  re-enters the USL through the authentic trampoline
+  `CallSecondaryInterruptHandler2(USBMIDI9SecondaryUSBBulkRead, nil,
+  &inst->pb, &result)`, where the secondary handler performs
+  `*(OSStatus*)result = USBBulkRead(pb)` and returns `noErr` (exact
+  sample shape; the trampoline's own return is ignored).
+* `kReadBulkInPipeState` is the only state routed through the helper.
+  The read resubmit is the only completion-driven **bulk** USL call; the
+  other completion-driven transitions (`USBAllocMem`,
+  `USBConfigureInterface`, `USBFindNextPipe`) stay direct, and the
+  stall-clear (`USBClearPipeStallByReference`) stays direct — exactly
+  matching what Apple's samples do from completion procs: PrinterClassDriver
+  and USBModem issue control-pipe and synchronous USL calls directly
+  (`USBDeviceRequest`, `USBFindNextInterface`, `USBOpenDevice`,
+  `USBClearPipeStallByReference`) and give the SafeUSBBulkRead treatment
+  only to `USBBulkRead`/`USBBulkWrite`.
+* No logging/allocation/Toolbox calls in the completion path; removal /
+  `kCompletionPending` / `kReturnFromDriver` / `transDepth` semantics
+  unchanged.
+* Note on the authentic gate: Apple's samples gate `SafeUSBBulkRead` on
+  **USB version** (`Gestalt('usbv') < kUSBv12`), not execution level; that
+  gate is inert on the G4 (USB ≥ 1.2), so USBMIDI9 uses the
+  DDK-documented generic mechanism (Rev 26 p. 102: "the driver services
+  call CurrentExecutionLevel can be used to discover the current
+  execution level") while keeping the sample's exact trampoline shape.
+  §8.2 was corrected accordingly.
+
+**Host verification** (`make test`, `make test-sanitize`,
+`make check-classic`): regression tests in `tests/test_machine.c` cover
+task-level direct submission, secondary-interrupt submission through the
+trampoline (reaching `USBBulkRead` only via it — no direct recursion from
+the completion), stall retry at secondary level (direct stall-clear +
+trampolined retry), and removal still preventing resubmission at
+secondary level. Plan: `spec/m1b-readpath/tasks.md`.
+
+**Hardware gate is NOT complete.** Next run on the G4 must re-pass
+matching/dispatch AND receive real USB-MIDI bytes (Keystation) without
+hanging.

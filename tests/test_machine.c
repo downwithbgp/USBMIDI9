@@ -22,6 +22,12 @@
  *     bounded by the transDepth re-entrancy guard
  *   - the removal protocol: kUSBDeviceBusy while pending, abort, drain,
  *     finalize
+ *   - the safe bulk-read helper: task-level submission calls USBBulkRead
+ *     directly; completion-context (secondary interrupt level)
+ *     submission goes through the authentic CallSecondaryInterruptHandler2
+ *     trampoline (including immediate-error propagation through its
+ *     result contract); stall retry keeps the direct synchronous
+ *     stall-clear; removal still prevents resubmission
  *
  * Portable C (C89/C90).
  */
@@ -31,6 +37,7 @@
 
 #include <MacTypes.h>
 #include <MacErrors.h>
+#include <DriverServices.h>
 #include <USB.h>
 
 /* ---- Mock USL (implementations of the stub-header prototypes) ---- */
@@ -65,6 +72,9 @@ static int gReadCalls;              /* outstanding = number of USBBulkReads issu
 static int gAbortCalls;
 static int gDeallocCalls;
 static int gStallClearCalls;
+
+static int gExecLevel;              /* CurrentExecutionLevel() result */
+static int gTrampolineCalls;        /* CallSecondaryInterruptHandler2 invocations */
 
 static char gTrace[64][12];         /* sequence of mock calls (debugging) */
 static int gTraceCount;
@@ -210,6 +220,23 @@ OSStatus USBDeallocMem(USBPB *pb)
     return kUSBNoErr;
 }
 
+OSStatus CurrentExecutionLevel(void)
+{
+    return (OSStatus)gExecLevel;
+}
+
+OSStatus CallSecondaryInterruptHandler2(
+    OSStatus (*theHandler)(void *callerRefCon, void *result),
+    void *refCon, void *callerRefCon, void *result)
+{
+    (void)refCon;
+    /* The authentic mechanism runs the handler at secondary interrupt
+     * level with the USL result delivered through *result; the handler's
+     * return value is the trampoline's status (the samples ignore it). */
+    gTrampolineCalls++;
+    return theHandler(callerRefCon, result);
+}
+
 /* Test harness helpers: complete the pending call with a scripted
  * result. The caller fills the result fields first. */
 static void complete_pending(void)
@@ -279,6 +306,8 @@ static void mock_reset(int mode)
     gSyncReadNext = 0;
     gDeallocCalls = 0;
     gStallClearCalls = 0;
+    gExecLevel = kTaskLevel;
+    gTrampolineCalls = 0;
     gTraceCount = 0;
     memset(gMockBuffer, 0, sizeof(gMockBuffer));
 }
@@ -550,7 +579,151 @@ static void test_removal_protocol(void)
     CHECK(gDeallocCalls == deallocs_before + 2);   /* ring + read buffer */
 }
 
-/* 8. Driver description version: the NumVersion stage byte must use the
+/* 8. Safe bulk read — task level: init and the first read submission
+ * run at task level, so USBBulkRead is called directly and the
+ * CallSecondaryInterruptHandler2 trampoline is never used. */
+static void test_safe_read_task_level_direct(void)
+{
+    mock_reset(MODE_NORMAL);
+    cleanup_all();
+    drive_init_to_read();
+    CHECK(gReadCalls == 1);
+    CHECK(gTrampolineCalls == 0);
+}
+
+/* 9. Safe bulk read — secondary interrupt level: a successful data
+ * completion delivered at secondary interrupt level resubmits through
+ * the authentic trampoline; USBBulkRead is reached through it exactly
+ * once, never by direct recursion from the completion context. A later
+ * completion at task level goes direct again. */
+static void test_safe_read_completion_resubmit_via_trampoline(void)
+{
+    static const unsigned char packet[4] = { 0x09u, 0x90u, 0x3Cu, 0x57u };
+    unsigned char out[16];
+    int reads_before;
+    int tramps_before;
+
+    mock_reset(MODE_NORMAL);
+    cleanup_all();
+    drive_init_to_read();                 /* first read issued at task level */
+    reads_before = gReadCalls;
+    tramps_before = gTrampolineCalls;
+    CHECK(reads_before == 1);
+    CHECK(tramps_before == 0);
+
+    /* The USL completes the read at secondary interrupt level. */
+    gExecLevel = kSecondaryInterruptLevel;
+    memcpy(gPendingPB->usbBuffer, packet, 4);
+    gPendingPB->usbActCount = 4;
+    gPendingPB->usbStatus = kUSBNoErr;
+    complete_pending();
+
+    /* Resubmission: exactly one trampoline call, exactly one more
+     * USBBulkRead (through it), read pending again, bytes in the ring. */
+    CHECK(gTrampolineCalls == tramps_before + 1);
+    CHECK(gReadCalls == reads_before + 1);
+    CHECK(gPendingKind == KIND_READ);
+    CHECK(USBMIDI9DispatchTable.dequeueBytes(0u, out, sizeof(out)) == 4u);
+    CHECK(memcmp(out, packet, 4) == 0);
+
+    /* A second completion at task level resubmits directly. */
+    gExecLevel = kTaskLevel;
+    gPendingPB->usbActCount = 0;
+    gPendingPB->usbStatus = kUSBNoErr;
+    complete_pending();
+    CHECK(gTrampolineCalls == tramps_before + 1);
+    CHECK(gReadCalls == reads_before + 2);
+}
+
+/* 10. Safe bulk read — stall retry at secondary interrupt level: the
+ * stall-clear stays a direct synchronous USL call (sample-verified:
+ * PrinterClassDriver's ReadCompletion calls USBClearPipeStallByReference
+ * directly), and the retry read goes through the trampoline. */
+static void test_safe_read_stall_retry_via_trampoline(void)
+{
+    int stall_clears_before;
+    int tramps_before;
+    int reads_before;
+
+    mock_reset(MODE_NORMAL);
+    cleanup_all();
+    drive_init_to_read();
+    stall_clears_before = gStallClearCalls;
+    tramps_before = gTrampolineCalls;
+    reads_before = gReadCalls;
+
+    gExecLevel = kSecondaryInterruptLevel;
+    gPendingPB->usbStatus = kUSBPipeStalledError;
+    gPendingPB->usbActCount = 0;
+    complete_pending();
+
+    CHECK(gStallClearCalls == stall_clears_before + 1);
+    CHECK(gTrampolineCalls == tramps_before + 1);
+    CHECK(gReadCalls == reads_before + 1);
+    CHECK(gPendingKind == KIND_READ);
+}
+
+/* 11. Safe bulk read — immediate error delivered through the trampoline:
+ * a secondary-level resubmission whose USBBulkRead fails immediately
+ * (non-pending) propagates through the *result contract and stops the
+ * machine; removal can still finalize. */
+static void test_safe_read_immediate_error_via_trampoline(void)
+{
+    int tramps_before;
+    int reads_before;
+    UInt32 count;
+
+    mock_reset(MODE_NORMAL);
+    cleanup_all();
+    drive_init_to_read();
+    tramps_before = gTrampolineCalls;
+    reads_before = gReadCalls;
+
+    gExecLevel = kSecondaryInterruptLevel;
+    gImmediateErr = kUSBNotRespondingErr;
+    gPendingPB->usbStatus = kUSBNoErr;
+    gPendingPB->usbActCount = 0;
+    complete_pending();   /* resubmit -> trampoline -> immediate error */
+
+    CHECK(gTrampolineCalls == tramps_before + 1);
+    CHECK(gReadCalls == reads_before + 1);
+    CHECK(gPendingKind == KIND_NONE);   /* stopped, no phantom pending */
+    CHECK(TheClassDriverPluginDispatchTable.notificationProc(
+              kNotifyDriverBeingRemoved, 0, 0u) == kUSBNoErr);
+    CHECK(TheClassDriverPluginDispatchTable.finalizeProc(
+              (USBDeviceRef)0x1234u, &gFakeDevice) == kUSBNoErr);
+    CHECK(USBMIDI9DispatchTable.enumerateInterfaces(0, 0u, &count) == kUSBNoErr);
+    CHECK(count == 0u);
+}
+
+/* 12. Safe bulk read — removal still prevents resubmission, even when
+ * the abort completion runs at secondary interrupt level: no trampoline
+ * call, no new USBBulkRead. */
+static void test_safe_read_removal_prevents_resubmission(void)
+{
+    int tramps_before;
+    int reads_before;
+
+    mock_reset(MODE_NORMAL);
+    cleanup_all();
+    drive_init_to_read();
+    tramps_before = gTrampolineCalls;
+    reads_before = gReadCalls;
+
+    CHECK(TheClassDriverPluginDispatchTable.notificationProc(
+              kNotifyDriverBeingRemoved, 0, 0u) == kUSBDeviceBusy);
+
+    gExecLevel = kSecondaryInterruptLevel;
+    gPendingPB->usbStatus = kUSBAbortedError;
+    gPendingPB->usbActCount = 0;
+    complete_pending();
+
+    CHECK(gPendingKind == KIND_NONE);
+    CHECK(gTrampolineCalls == tramps_before);
+    CHECK(gReadCalls == reads_before);
+}
+
+/* 13. Driver description version: the NumVersion stage byte must use the
  * authentic MacTypes.h release-stage constant (finalStage). The invented
  * kReleaseStageFinal name was rejected by the real CodeWarrior build
  * (undefined identifier); this pins the field and the constant so the
@@ -576,6 +749,11 @@ int test_machine_run(void)
     test_sync_read_loop_guard();
     test_immediate_error();
     test_removal_protocol();
+    test_safe_read_task_level_direct();
+    test_safe_read_completion_resubmit_via_trampoline();
+    test_safe_read_stall_retry_via_trampoline();
+    test_safe_read_immediate_error_via_trampoline();
+    test_safe_read_removal_prevents_resubmission();
     test_driver_description_version();
     return g_failures;
 }
