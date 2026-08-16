@@ -8,3 +8,19 @@
 
 # Reasonix tooling state
 .reasonix/
+
+# AFP share bookkeeping (Netatalk on the Linux server)
+Network Trash Folder/
+TheFindByContentFolder/
+TheVolumeSettingsFolder/
+
+# AppleDouble resource-fork companions (Finder/AFP metadata)
+._*
+
+# Live CodeWarrior project area on the AFP-mounted tree (G4). Contains
+# the live .µ project files, per-target settings (.stg/.tdt), build
+# products (.xSYM, PEF artifacts), Apple/Metrowerks sample files
+# (CompositeClassDriver.r, HelloWorld.c — not ours to publish), and
+# source copies that duplicate classic/. The canonical sources live in
+# classic/ and probe/.
+USBMIDI9/

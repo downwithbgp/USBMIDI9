@@ -1111,10 +1111,11 @@ implementation (sample files listed per claim below).
 
 NOT claimable from this repository. Requires, on the Power Mac G4:
 
-- [ ] Build the driver (`classic/usb_driver.c`, `classic/ring.c`) in
+- [x] Build the driver (`classic/usb_driver.c`, `classic/ring.c`) in
       CodeWarrior as a shared library, merged to file type `'ndrv'`
       creator `'usbd'`, exports from `codewarrior/USBMIDI9.exp`,
-      linking USBServicesLib; install in the Extensions folder.
+      linking USBServicesLib — **done on the G4 (0 errors / 43
+      warnings; see §9.7)**; install in the Extensions folder: pending.
 - [ ] Build the Probe (`probe/probe.c`) as a CodeWarrior console app
       (SIOUX) linking InterfaceLib + USBManagerLib.
 - [ ] Boot Mac OS 9 with the driver installed; attach the Keystation 49e
@@ -1169,3 +1170,63 @@ Correction applied:
 Value note: `kReleaseStageFinal 0x0080u` == `finalStage` (0x80), so the
 correction is name-only — the emitted NumVersion byte is unchanged. The
 G4 CodeWarrior rebuild is the confirming gate (checklist item 1 above).
+
+### 9.7 Real-target build status (Power Mac G4) and Probe corrections
+
+Environment proven on hardware: Power Mac G4 / Mac OS 9, CodeWarrior Pro
+5.3 (IDE 4.0.4), Universal Interfaces & Libraries 3.3.x, Apple USB DDK
+1.4.1, with the repository served live over AFP from 10.0.3.200. The
+real build is the source of truth; `classic/host-check/` must model it
+and never overrule it.
+
+**Driver — build PASSED.** The real CodeWarrior build of the USBMIDI9
+driver produces 0 errors / 43 warnings (mostly duplicate-descriptor /
+import-library warnings such as `ignored 'BitAtomic' (descriptor) in
+InterfaceLib`, previously defined in DriverServicesLib; not cleaned
+during M1 bring-up). The artifact is verified on Mac OS 9 as type
+`ndrv`, creator `usbd`, exporting `TheUSBDriverDescription`,
+`TheClassDriverPluginDispatchTable`, `USBMIDI9DispatchTable` via
+`USBMIDI9.exp` (checklist item 1 of §9.5 is complete through the
+build; install and hardware validation remain).
+
+**Probe — builds, links, launches (SIOUX console).** The Probe project
+is Std C Console stationery ("ANSI Console Multi" template), target
+`USBMIDI9 Probe`, linking `MSL RuntimePPC.Lib`, `MSL C.PPC.Lib`,
+`MSL SIOUX.PPC.Lib`, `InterfaceLib`, `MathLib`, with the PPC PEF entry
+point `__start` (provided by the MSL runtime; the earlier
+`undefined '__start' (descriptor)` link error was missing/broken MSL
+runtime linkage in the target, fixed on the Mac side — do not add a
+fake `__start` or change the entry point). `HelloWorld.c` from the
+stationery must stay excluded from the target (it defines a second
+`main()`).
+
+**Probe real-target corrections (found by running on the G4):**
+
+1. **Initial no-driver state was silent.** `lastCount` was initialized
+   to `0xFFFFFFFF` to force the first interface-table print, but the
+   `table == nil` branch only printed when `lastCount != 0xFFFFFFFF`,
+   so the probe sat silent at startup with no driver installed. Fixed
+   with an explicit state flag (`struct USBMIDI9ProbeState` +
+   `noDriverReported`): the probe now prints
+   `(no USBMIDI9 driver loaded)` exactly once at startup and again on
+   each driver-present → driver-absent transition, never per poll.
+2. **Quit key used a byte-array KeyMap.** The authentic `Events.h`
+   `KeyMap` is `UInt32[4]` (128 bits); the old
+   `keys[k/8] & (1u << (k%8))` test indexed it with an invented
+   LSB-first byte layout, so 'q' never quit on the G4. The probe now
+   tests the key through the authentic `KeyMapByteArray` byte view
+   (`UInt8[16]`, bit N = byte N/8, mask `0x80 >> (N%8)`, bit 0 = MSB of
+   byte 0; the header's own portable-bit-numbering mechanism). Q stays
+   keycode 0x0C. `classic/host-check/Events.h` now models the real
+   `KeyMap`/`KeyMapByteArray` shapes instead of a hiding `UInt8[16]`
+   simplification.
+3. **Host regression coverage** (`tests/test_probe.c`, `make test` +
+   `make test-sanitize`): initial no-driver prints once, repeated
+   no-driver polls stay silent, driver disappearance reports again, and
+   the quit-key helper accepts the authentic bit layout and rejects the
+   old inverted one.
+
+The probe is now expected to launch with no driver installed, print
+`(no USBMIDI9 driver loaded)`, and quit on 'q'. The remaining M1B
+hardware gate is §9.5 items 2+ (install driver, attach Keystation,
+receive real USB-MIDI bytes).

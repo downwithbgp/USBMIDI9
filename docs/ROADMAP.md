@@ -1,7 +1,7 @@
 # Roadmap
 
-Current status: **M1B source gate complete** (driver + probe source,
-host compile-checked; hardware validation pending on the Power Mac G4).
+Current status: **M1B source gate complete; driver + probe build on the
+real Power Mac G4 (CodeWarrior Pro 5.3); hardware validation pending.**
 
 ## M0 — Repository and portable core
 
@@ -22,8 +22,10 @@ host compile-checked; hardware validation pending on the Power Mac G4).
 **M1A complete** (research/design gate; `docs/classic-usb-driver.md`).
 **M1B source complete** (interface class driver + probe source,
 `classic/`, `probe/`, `codewarrior/USBMIDI9.exp`; host-compile-checked via
-`make check-classic`). **M1B hardware gate NOT done** — acceptance
-requires building on real CodeWarrior, booting Mac OS 9, attaching a real
+`make check-classic`). **Real-target builds done**: driver 0 errors / 43
+warnings on CodeWarrior Pro 5.3 (`ndrv`/`usbd`), Probe links and launches
+(SIOUX console) — see `docs/classic-usb-driver.md` §9.7. **M1B hardware
+gate NOT done** — acceptance requires booting Mac OS 9, attaching a real
 Keystation, and receiving real USB bytes (`docs/classic-usb-driver.md`
 §9.5 checklist).
 

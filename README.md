@@ -4,7 +4,8 @@ Generic USB-MIDI 1.0 class support for Classic Mac OS 9.
 
 **The project is in early development. No working Mac OS 9 driver has been
 released yet: the M1B driver/probe source is written and host
-compile-checked, but nothing has been validated on real hardware.**
+compile-checked, and the driver builds on real CodeWarrior (Power Mac G4),
+but no USB-MIDI traffic has been validated on real hardware yet.**
 
 USBMIDI9 aims to provide a generic USB-MIDI 1.0 class transport for Mac OS 9:
 a portable, standards-oriented core plus a Classic Mac OS USB transport,
@@ -37,11 +38,19 @@ diagnostic utility, "USBMIDI9 Probe", is planned.
   (`probe/probe.c`), and the CodeWarrior export list
   (`codewarrior/USBMIDI9.exp`) exist and compile-check on Linux
   (`make check-classic`).
+* **Real-target build status (Power Mac G4, CodeWarrior Pro 5.3):** the
+  driver (`classic/usb_driver.c`, `classic/ring.c`) builds with **0
+  errors / 43 warnings** and produces an `ndrv`/`usbd` artifact with the
+  expected exports (`TheUSBDriverDescription`,
+  `TheClassDriverPluginDispatchTable`, `USBMIDI9DispatchTable`); the
+  Probe (`probe/probe.c`) compiles, links, and launches on Mac OS 9 as a
+  SIOUX console app. The Probe's no-driver reporting and quit-key
+  handling were corrected from real-G4 findings (see
+  `docs/classic-usb-driver.md` §9.6/§9.7).
 * **No hardware has been demonstrated on Mac OS 9 yet.** The M1B
-  definition of done explicitly requires building on real CodeWarrior,
-  booting on real Mac OS 9, attaching a real Keystation, and receiving
-  real USB bytes — see the hardware acceptance checklist in
-  `docs/classic-usb-driver.md` §9.5.
+  definition of done explicitly requires booting on real Mac OS 9,
+  attaching a real Keystation, and receiving real USB bytes — see the
+  hardware acceptance checklist in `docs/classic-usb-driver.md` §9.5.
 * The OMS driver, FreeMIDI driver, and the service boundary are reserved
   placeholders. They will not be implemented until the relevant
   historical APIs are verified from primary Apple/Opcode/MOTU
