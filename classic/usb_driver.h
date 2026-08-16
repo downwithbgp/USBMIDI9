@@ -17,7 +17,7 @@
  *
  * This file is compiled on the Power Mac G4 (CodeWarrior) against the
  * Universal Headers + DDK USB.h. On Linux it is compile-checked against
- * the minimal stub headers in classic/host-check/ (make check-classic).
+ * the minimal stub headers in host-check/ (make check-classic).
  */
 
 #ifndef USBMIDI9_CLASSIC_USB_DRIVER_H

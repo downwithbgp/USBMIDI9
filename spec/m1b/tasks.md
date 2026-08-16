@@ -85,7 +85,7 @@ MacErrors.h snapshot).
 - `codewarrior/USBMIDI9.exp` — export list for the linker:
   TheUSBDriverDescription, TheClassDriverPluginDispatchTable,
   USBMIDI9DispatchTable.
-- `classic/host-check/*.h` — minimal stub headers (MacTypes.h,
+- `host-check/*.h` — minimal stub headers (MacTypes.h,
   MacErrors.h, USB.h, CodeFragments.h, Memory.h) declaring ONLY the
   verified surface used by the code, each constant with its citation;
   used by `make check-classic` to syntax/type-check the Classic sources

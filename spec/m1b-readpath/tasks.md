@@ -120,7 +120,7 @@ static OSStatus USBMIDI9SafeUSBBulkRead(usbmidi9_instance *inst)
   path.
 - `#include <DriverServices.h>` added to usb_driver.c (matches the
   samples' include for these functions).
-- New stub `classic/host-check/DriverServices.h` with ONLY the verified
+- New stub `host-check/DriverServices.h` with ONLY the verified
   surface: `CurrentExecutionLevel`, `CallSecondaryInterruptHandler2`
   (raw proc-pointer parameter — the kit's typedef name is not verifiable
   from the samples, so the stub types the handler as the sample-verified
@@ -131,7 +131,7 @@ static OSStatus USBMIDI9SafeUSBBulkRead(usbmidi9_instance *inst)
 
 ## Tasks
 
-1. **Add the stub header** `classic/host-check/DriverServices.h` and
+1. **Add the stub header** `host-check/DriverServices.h` and
    include `<DriverServices.h>` from `classic/usb_driver.c`.
    Gate: `make check-classic` compiles.
 2. **Implement the safe helper** and route `kReadBulkInPipeState`

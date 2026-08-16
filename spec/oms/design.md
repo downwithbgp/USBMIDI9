@@ -141,7 +141,7 @@ just the two stream adapters the clients need.
 
 - `tests/test_midi_stream.c` — exhaustive converter tests (1.1 list).
 - `tests/test_oms_driver.c` — compiles `oms/oms_driver.c` against
-  `classic/host-check/` stubs + a mock OMS environment (mirrors
+  `host-check/` stubs + a mock OMS environment (mirrors
   `test_machine.c`): drives omdv* messages, asserts device registration
   payloads, packet formatting, continuation flags, send-hook behavior
   (**including `OMSSendParams` paramD0 → readHookRefCon and low word of

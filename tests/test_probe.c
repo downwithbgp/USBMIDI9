@@ -4,7 +4,7 @@
  *
  * probe/probe.c is compiled into this translation unit (the same
  * technique as tests/test_machine.c with classic/usb_driver.c) against
- * the stub headers in classic/host-check/. The OS calls the probe makes
+ * the stub headers in host-check/. The OS calls the probe makes
  * (GetKeys, Delay, USBGetNextDeviceByClass, FindSymbol, GetZone,
  * SetZone, SystemZone) are provided by the mocks below so the poll loop
  * can be scripted. The probe's printf output is captured (not printed)

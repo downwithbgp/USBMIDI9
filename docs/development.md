@@ -10,7 +10,7 @@
 * The portable core (`core/`) must compile and pass tests on Linux with no
   Classic Mac SDK present. Classic-target code (`classic/`, `probe/`) is
   not built into the Linux test binary but IS compile-checked against
-  minimal stub headers (`classic/host-check/`) via `make check-classic`;
+  minimal stub headers (`host-check/`) via `make check-classic`;
   `oms/` and `freemidi/` remain reserved placeholders.
 
 ## Building and testing
@@ -21,7 +21,7 @@ make test           # run unit tests (default compiler: cc)
 make test CC=clang  # run unit tests with Clang
 make test-sanitize  # run tests under AddressSanitizer + UBSan
 make check-classic  # compile-check classic/usb_driver.c + probe/probe.c
-                    # against classic/host-check/ stub headers
+                    # against host-check/ stub headers
 make clean
 ```
 
@@ -68,10 +68,10 @@ Headers:                          Universal Interfaces & Libraries 3.3.x
   the Probe builds as a Std C Console (SIOUX) PPC application and
   launches on Mac OS 9. See `docs/classic-usb-driver.md` §9.5/§9.7.
 * Classic-target sources use **logical include names** (`<MacTypes.h>`,
-  `"usbmidi9_dispatch.h"`) resolved through CodeWarrior Access Paths —
-  never Unix-style relative paths (`../`, `classic/...`). The Linux
-  `check-classic` target mirrors the G4 access paths via
-  `-Iclassic -Iclassic/host-check`.
+  `"usbmidi9_dispatch.h"`, `"midi_stream.h"`) resolved through
+  CodeWarrior Access Paths — never Unix-style relative paths (`../`,
+  `classic/...`). The Linux `check-classic` target mirrors the G4 access
+  paths via `-Iclassic -Ihost-check -Icore`.
 * Keep source files ordinary portable text (LF line endings, no BOM)
   wherever possible.
 * The repository documents where external SDK material (Apple USB DDK, OMS

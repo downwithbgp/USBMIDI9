@@ -27,4 +27,4 @@ notifications.
 CodeWarrior console app; link InterfaceLib and USBManagerLib; include the
 Universal Headers + DDK USB.h; add `classic/` to the access paths for
 `usbmidi9_dispatch.h`. On Linux, `make check-classic` compile-checks
-`probe/probe.c` against the stub headers in `classic/host-check/`.
+`probe/probe.c` against the stub headers in `host-check/`.

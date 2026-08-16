@@ -3,7 +3,7 @@
 # The portable core (core/) and the ring buffer (classic/ring.c) are built
 # and host-tested here. The Classic driver and probe sources are NOT built
 # into the Linux binaries; they are compile-checked against minimal stub
-# headers (classic/host-check/) by `make check-classic`. OMS and FreeMIDI
+# headers (host-check/) by `make check-classic`. OMS and FreeMIDI
 # layers contain no implementation yet (see docs/).
 #
 # Targets:
@@ -52,7 +52,7 @@ $(BUILD)/%.o: %.c
 # on the driver sources and the stub headers too.
 MACHINE_DEPS := tests/test_machine.c classic/usb_driver.c classic/usb_driver.h \
                 classic/usbmidi9_dispatch.h classic/ring.h \
-                classic/host-check/*.h
+                host-check/*.h
 
 $(BUILD)/tests/test_machine.o: $(MACHINE_DEPS)
 	@mkdir -p $(dir $@)
@@ -67,7 +67,7 @@ $(SAN)/tests/test_machine.o: $(MACHINE_DEPS)
 # tracking and -Iclassic (the probe includes "usbmidi9_dispatch.h",
 # resolved through the classic access path, mirroring the G4 project).
 PROBE_DEPS := tests/test_probe.c probe/probe.c classic/usbmidi9_dispatch.h \
-              classic/host-check/*.h
+              host-check/*.h
 
 $(BUILD)/tests/test_probe.o: $(PROBE_DEPS)
 	@mkdir -p $(dir $@)
@@ -84,7 +84,7 @@ $(SAN)/tests/test_probe.o: $(PROBE_DEPS)
 # core/midi_stream.o (the converter the shim consumes).
 OMS_DEPS := tests/test_oms_driver.c oms/oms_driver.c oms/oms_rx.c oms/oms_tx.c \
             oms/oms_driver.h core/midi_stream.h core/midi_stream.c \
-            classic/usbmidi9_dispatch.h classic/host-check/*.h
+            classic/usbmidi9_dispatch.h host-check/*.h
 
 $(BUILD)/tests/test_oms_driver.o: $(OMS_DEPS)
 	@mkdir -p $(dir $@)
@@ -108,11 +108,14 @@ $(SAN)/%.o: %.c
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
 
 # Syntax/type check of the Classic Mac OS sources against minimal stub
-# headers (classic/host-check/). The real build happens in CodeWarrior on
+# headers (host-check/). The real build happens in CodeWarrior on
 # the Power Mac G4; this only catches C-level errors on Linux.
 # -Wdeclaration-after-statement enforces C89 block layout.
+# -Icore resolves "midi_stream.h" the same way the G4 project's
+# {Project}::core: access path does (no repo-root include path on the
+# G4 — that would reach host-check/).
 CLASSIC_CFLAGS := -std=c89 -Wall -Wextra -Werror -Wdeclaration-after-statement \
-                  -I. -Iclassic/host-check -Iclassic
+                  -I. -Ihost-check -Iclassic -Icore
 
 check-classic:
 	$(CC) $(CLASSIC_CFLAGS) -c -o $(BUILD)/usb_driver.o classic/usb_driver.c

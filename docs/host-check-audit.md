@@ -1,6 +1,6 @@
 # Host-check Classic header audit
 
-Every header in `classic/host-check/` is a **stub**: it exists only so
+Every header in `host-check/` is a **stub**: it exists only so
 `make check-classic` can syntax/type-check the Classic Mac OS sources on
 Linux. The G4 build uses the authentic headers (CodeWarrior Universal
 Headers, the DDK 1.4.1 `Interfaces/USB.h`, the Opcode OMS 2.0 SDK
@@ -45,7 +45,7 @@ Authentic sources used:
 
 The OMS G4 audit removed the one invented API found:
 
-- `classic/host-check/Notifications.h` pre-audit NMRec fields
+- `host-check/Notifications.h` pre-audit NMRec fields
   `eventTime`/`nMsg` and the `NMProcPtr(UInt32, UInt32)` signature —
   replaced with the authentic UI 3.3.2 model (see row above).
 

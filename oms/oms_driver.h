@@ -45,7 +45,7 @@
 #include <USB.h>
 
 #include "usbmidi9_dispatch.h"
-#include "core/midi_stream.h"
+#include "midi_stream.h"   /* via {Project}::core: on the G4; -Icore here */
 
 /* Driver signature: file creator AND OMSPortID.driverID.
  * FOUR_CHAR_CODE('USM9') written numerically (the host check has no

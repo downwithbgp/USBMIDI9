@@ -86,7 +86,7 @@ for a device that was never located is a no-op.
 
 ## Tasks
 
-- [T1] `classic/host-check/Notifications.h` — authentic UI 3.3.2 model
+- [T1] `host-check/Notifications.h` — authentic UI 3.3.2 model
   (R1a, R1b). Provenance comment; file rename note: authentic file is
   `Notification.h`; keep our filename for include compatibility but
   document it.
@@ -96,7 +96,7 @@ for a device that was never located is a no-op.
 - [T3] `classic/usb_driver.h` + `classic/usb_driver.c` — per-instance
   callback storage, setEventCallback proc, completion-path invocation,
   removal clears callback (R3a, R3b).
-- [T4] `classic/host-check/USB.h` — authentic USB Manager notification
+- [T4] `host-check/USB.h` — authentic USB Manager notification
   surface (R6b): USBDeviceNotificationParameterBlock,
   USBDeviceNotificationCallbackProcPtr, USBInstallDeviceNotification,
   USBRemoveDeviceNotification, kNotify* constants.

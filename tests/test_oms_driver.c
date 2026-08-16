@@ -4,7 +4,7 @@
  * environment.
  *
  * The shim sources are compiled into this translation unit against the
- * stub headers in classic/host-check/, and every external call the shim
+ * stub headers in host-check/, and every external call the shim
  * makes is intercepted by the mocks below: USBGetNextDeviceByClass,
  * USBGetDriverConnectionID, FindSymbol, GetZone/SetZone/SystemZone
  * (dispatch-table lookup), USBInstallDeviceNotification/

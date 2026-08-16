@@ -13,7 +13,7 @@ Nothing proprietary is committed; findings are described, sources cited.
 
 ## R1 — Notification Manager model must be authentic (review item 1)
 
-The host-check `classic/host-check/Notifications.h` currently invents an
+The host-check `host-check/Notifications.h` currently invents an
 NMRec with `eventTime`, `nMsg`, `nRefCon` and models NMInstall/NMRemove
 as a periodic callback scheduler. This is false.
 
@@ -122,7 +122,7 @@ FreeMIDI research boundary, distribution research, period docs.
 ## R6 — Header audit (review item 6)
 
 - [R6a] Produce a table (docs/host-check-audit.md): for every
-  `classic/host-check/*.h`, list stub symbol/type, authentic source
+  `host-check/*.h`, list stub symbol/type, authentic source
   (UI 3.3.2 / OMS SDK 2.0 / DDK 1.4.1 + Rev 26), exact/intentional
   difference. Eliminate invented APIs.
 - [R6b] Add the authentic USB Manager notification surface to the

@@ -3,7 +3,7 @@
  * (classic/usb_driver.c) driven through a scripted mock USL.
  *
  * The driver is compiled into this test translation unit (including
- * classic/usb_driver.c) against the stub headers in classic/host-check/,
+ * classic/usb_driver.c) against the stub headers in host-check/,
  * and every USL call it makes (USBAllocMem, USBConfigureInterface,
  * USBFindNextPipe, USBBulkRead, ...) is intercepted by the mock below.
  * All assertions go through the driver's real public surface: the

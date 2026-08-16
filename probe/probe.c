@@ -18,7 +18,7 @@
  *
  * Built on the Power Mac G4 with CodeWarrior (console app + SIOUX);
  * compile-checked on Linux via `make check-classic` against the stub
- * headers in classic/host-check/.
+ * headers in host-check/.
  */
 
 #include <stdio.h>

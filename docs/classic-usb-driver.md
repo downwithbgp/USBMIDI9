@@ -842,7 +842,7 @@ removed, relevant if an abort is used for error recovery.
 * ~~Exact **USL function prototypes in header form**~~ — **resolved by
   M1A.2:** the DDK 1.4.1 USB.h declares them itself (CALL_NOT_IN_CARBON
   gate); the M1B sources use the exact spellings from the kit header and
-  mirror them in the compile-check stubs (`classic/host-check/USB.h`).
+  mirror them in the compile-check stubs (`host-check/USB.h`).
 * `USBConfigureInterface` set-interface behavior in later USB software
   (Rev 26 documents that it does not set the interface; later behavior
   unverified — requires a 1.4.6+ USB software test).
@@ -1046,7 +1046,7 @@ implementation (sample files listed per claim below).
 | `classic/usb_driver.{h,c}` | The interface class driver (metadata, exports, state machine, removal). |
 | `probe/probe.c` | Mac OS 9 console probe (SIOUX): locate table, display info, hex dump. |
 | `codewarrior/USBMIDI9.exp` | Linker export list: `TheUSBDriverDescription`, `TheClassDriverPluginDispatchTable`, `USBMIDI9DispatchTable`. |
-| `classic/host-check/*.h` | Minimal stub headers (NOT the real SDK) for `make check-classic` on Linux. |
+| `host-check/*.h` | Minimal stub headers (NOT the real SDK) for `make check-classic` on Linux. |
 | `spec/m1b/tasks.md` | M1B task plan with the DoD mapping. |
 
 ### 9.2 Verified patterns used (kit file → use in driver)
@@ -1167,7 +1167,7 @@ Found by the **real CodeWarrior build on the G4** (first source-gate
 failure): `undefined identifier 'kReleaseStageFinal'` at
 `classic/usb_driver.c` (TheUSBDriverDescription's usbDriverVersion).
 `kReleaseStageFinal` had been **invented in the host-check stub header**
-(`classic/host-check/MacTypes.h`); it does not exist in the real headers.
+(`host-check/MacTypes.h`); it does not exist in the real headers.
 
 The authentic Universal Interfaces MacTypes.h (UI 3.3, the G4 build
 system's header set — see §3 Q19) models the NumVersion `stage` byte as
@@ -1190,7 +1190,7 @@ encoding in its own `Interfaces/PackageVersion.h` (`kDevelopmentRelease
 Correction applied:
 
 1. `classic/usb_driver.c`: `kReleaseStageFinal` → `finalStage`.
-2. `classic/host-check/MacTypes.h`: removed the invented
+2. `host-check/MacTypes.h`: removed the invented
    `#define kReleaseStageFinal 0x0080u`; models the authentic
    developStage/alphaStage/betaStage/finalStage enum instead.
 3. Regression guard: `tests/test_machine.c`
@@ -1209,7 +1209,7 @@ G4 CodeWarrior rebuild is the confirming gate (checklist item 1 above).
 Environment proven on hardware: Power Mac G4 / Mac OS 9, CodeWarrior Pro
 5.3 (IDE 4.0.4), Universal Interfaces & Libraries 3.3.x, Apple USB DDK
 1.4.1, with the repository served live over AFP from 10.0.3.200. The
-real build is the source of truth; `classic/host-check/` must model it
+real build is the source of truth; `host-check/` must model it
 and never overrule it.
 
 **Driver — build PASSED.** The real CodeWarrior build of the USBMIDI9
@@ -1253,7 +1253,7 @@ stationery must stay excluded from the target (it defines a second
    representation is byte N/8 with mask `1 << (N%8)` — verified on the
    G4; the MSB-first `0x80 >> (N%8)` inference was disproved by real
    hardware). Q stays keycode 0x0C (byte 1, mask 0x10).
-   `classic/host-check/Events.h` now models the real
+   `host-check/Events.h` now models the real
    `KeyMap`/`KeyMapByteArray` shapes instead of a hiding `UInt8[16]`
    simplification.
 3. **Host regression coverage** (`tests/test_probe.c`, `make test` +

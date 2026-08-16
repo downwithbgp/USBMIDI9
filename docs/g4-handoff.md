@@ -23,13 +23,34 @@ Sources (already in the tree; compile-checked on Linux):
 - `core/midi_stream.c` — the neutral USB-MIDI stream converter
 - `oms/oms_driver.h` — shared declarations
 
-Access paths (CodeWarrior): add the repo root (the AFP-mounted tree) and
-`classic/`; the sources use logical include names (`<OMS.h>`,
-`<OMSDriver.h>`, `<Notifications.h>`, `"usbmidi9_dispatch.h"`,
-`"core/midi_stream.h"`). The OMS headers (`OMS.h`, `OMSDriver.h`,
-`OMSDrvUPPs.h`, `OMSTypes.h`) come from the **Opcode OMS 2.0 SDK**
-(`~/research/oms/sdk/OMS 2.0 SDK 28-Jan-98/Headers/`) — do NOT use the
-Linux stub headers on the G4.
+Access paths (CodeWarrior), **in this order, and nothing else**:
+
+- `{Project}::classic:` — `usbmidi9_dispatch.h`, `ring.h`
+- `{Project}::oms:` — `oms_driver.h`
+- `{Project}::core:` — `midi_stream.h`
+- `OMS SDK:Headers:` — `OMS.h`, `OMSDriver.h`, `OMSDrvUPPs.h`,
+  `OMSTypes.h` (`~/research/oms/sdk/OMS 2.0 SDK 28-Jan-98/Headers/`)
+- `USB DDK ...:Interfaces:` — the authentic `USB.h`
+- plus CodeWarrior's default Universal Headers (Mac OS Support) for
+  `MacTypes.h`, `MacErrors.h`, `Notifications.h`, `Memory.h`,
+  `OSUtils.h`, `CodeFragments.h`, `DriverServices.h`
+
+**Do NOT add the repository root** (the AFP-mounted tree) and **never
+search `host-check/`**: the Linux-only stub tree lives at the top level
+in `host-check/` and must never be on a G4 access path. The first real
+build failed with `identifier 'UInt32' redeclared` and `tag 'OMSDevice'
+redefined` because a `{Project}::classic:` access path reached the old
+`classic:host-check:` stubs (`MacTypes.h`, `OMS.h`, `OMSDriver.h`) and
+they were included alongside the authentic OMS SDK headers. The stubs
+are used only by `make check-classic` on Linux — do NOT use the Linux
+stub headers on the G4, and do not add include guards to the authentic
+SDK headers.
+
+After re-setting the access paths, **invalidate the target's
+precompiled-header cache**: the OMS PEF target's `TargetDataMacOS.tdt`
+(present in the AFP-synced project tree) still lists a `:host-check`
+entry in its Access Paths/PCH state — delete or force-rebuild it so a
+stale PCH cannot resurface the collision.
 
 Libraries: link against nothing OMS-specific — the driver calls OMS via
 `OMSReceivedFromPort`/`OMSOpenDriverResFile`/`OMSCloseDriverResFile`, which
