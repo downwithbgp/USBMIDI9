@@ -137,16 +137,29 @@ OSStatus oms_mock_USBGetNextDeviceByClass(USBDeviceRef *deviceRef,
     return kUSBNotFound;
 }
 
-OSStatus oms_mock_USBGetDriverConnectionID(USBDeviceRef deviceRef,
+OSStatus oms_mock_USBGetDriverConnectionID(USBDeviceRef *deviceRef,
                                            CFragConnectionID *connID)
 {
     gConnIDCalls++;
-    if (!gDriverPresent || deviceRef != gMockDeviceRef) {
+    if (!gDriverPresent || *deviceRef != gMockDeviceRef) {
         return kUSBNotFound;
     }
     *connID = gMockConnID;
     return noErr;
 }
+
+/* Compile-time regression guard: the authentic DDK declares
+ * USBGetDriverConnectionID(USBDeviceRef *deviceRef, CFragConnectionID
+ * *connID) — the first parameter is a POINTER to the ref (USB.h 1.4.1;
+ * Rev 26 Ch 6 p. 181; Apple's SampleShim.c calls it as
+ * USBGetDriverConnectionID(&pb->usbDeviceRef, &connID)). The real G4
+ * build (DDK 1.5.1f1) failed with "cannot convert 'long' to 'long *'"
+ * when the host-check stub had drifted to pass-by-value. If the mock
+ * ever regresses to pass-by-value, this binding no longer type-checks
+ * and the -Werror build stops. */
+static OSStatus (*const kConnIDSigGuard)(USBDeviceRef *,
+                                         CFragConnectionID *) =
+    oms_mock_USBGetDriverConnectionID;
 
 OSStatus oms_mock_FindSymbol(CFragConnectionID connID, const char *symName,
                     Ptr *symAddr, CFragSymbolClass *symClass)
@@ -938,6 +951,15 @@ static void test_remove_before_locate_noop(void)
     CHECK(g_oms.table == NULL);
 }
 
+/* The authentic USBGetDriverConnectionID takes the device ref BY
+ * POINTER (G4/DDK 1.5.1f1 gate: "cannot convert 'long' to 'long *'").
+ * kConnIDSigGuard above is the compile-time contract; this run keeps it
+ * referenced and documents the shape. */
+static void test_connid_signature_guard(void)
+{
+    CHECK(kConnIDSigGuard == oms_mock_USBGetDriverConnectionID);
+}
+
 /* The push hook is gated on midiStarted: data that arrives while MIDI
  * is stopped stays in the ring (discarded at the next start). */
 static void test_event_gated_when_midi_stopped(void)
@@ -1282,6 +1304,7 @@ static void test_send_hook_sysex_chunks(void)
 int test_oms_driver_run(void)
 {
     g_failures = 0;
+    test_connid_signature_guard();
     test_init_locate();
     test_init_no_driver();
     test_init_twice();

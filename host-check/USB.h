@@ -143,7 +143,10 @@ typedef struct USBPB USBPB;
  * values below are the ones the real OMS USB Manager switches on in its
  * notification callback (PEF disassembly: 0=AddDevice, 1=RemoveDevice,
  * 2=AddInterface, 3=RemoveInterface; input filter kNotifyAnyEvent=0xff
- * per Rev 26 Ch 6). */
+ * per Rev 26 Ch 6). Signatures follow USB.h 1.4.1 exactly (the G4 build
+ * uses the same USB Manager surface in DDK 1.5.1f1): the callback takes
+ * void *pb and USBGetDriverConnectionID takes a POINTER to the device
+ * ref. */
 
 typedef UInt8 USBNotificationType;
 
@@ -156,8 +159,11 @@ enum {
 };
 
 struct USBDeviceNotificationParameterBlock;
-typedef void (*USBDeviceNotificationCallbackProcPtr)(
-    struct USBDeviceNotificationParameterBlock *pb);
+/* Authentic DDK form (USB.h 1.4.1): CALLBACK_API_C( void,
+ * USBDeviceNotificationCallbackProcPtr )(void *pb) — the pb arrives as
+ * void * and the callback casts it. Apple's own StorageClassShim.c
+ * sample assigns its typed callback with an explicit cast. */
+typedef void (*USBDeviceNotificationCallbackProcPtr)(void *pb);
 
 struct USBDeviceNotificationParameterBlock {
     UInt16 pbLength;
@@ -182,7 +188,12 @@ typedef USBDeviceNotificationParameterBlock *
 
 void USBInstallDeviceNotification(USBDeviceNotificationParameterBlock *pb);
 OSStatus USBRemoveDeviceNotification(UInt32 token);
-OSStatus USBGetDriverConnectionID(USBDeviceRef deviceRef,
+/* Authentic DDK signature (USB.h 1.4.1; Rev 26 Ch 6 p. 181; Apple's
+ * SampleShim.c calls USBGetDriverConnectionID(&pb->usbDeviceRef,
+ * &connID)): the first parameter is a POINTER to the device ref. The
+ * G4 build (DDK 1.5.1f1 header) rejects the by-value form with
+ * "cannot convert 'long' to 'long *'". */
+OSStatus USBGetDriverConnectionID(USBDeviceRef *deviceRef,
                                   CFragConnectionID *connID);
 
 /* --- Driver description and dispatch table (USB.h 1.4.1) --- */

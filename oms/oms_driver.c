@@ -195,7 +195,7 @@ static OSErr oms_attach_device(USBDeviceRef deviceRef)
     if (g_oms.table != NULL) {
         return noErr;               /* already attached */
     }
-    if (USBGetDriverConnectionID(deviceRef, &connID) != noErr) {
+    if (USBGetDriverConnectionID(&deviceRef, &connID) != noErr) {
         return kUSBNotFound;
     }
     return oms_bind_dispatch(deviceRef, connID);
@@ -255,9 +255,15 @@ static OSErr oms_ensure_dispatch(void)
 /* USB Manager device notification (task time; Rev 26 Ch 4/6, and the
  * same event values the Opcode OMS USB Manager switches on). Installed
  * at omdvInit; the USB Manager may call it synchronously during
- * installation for an already-attached device. */
-static void oms_usb_notify(USBDeviceNotificationParameterBlock *pb)
+ * installation for an already-attached device. The parameter is void *
+ * exactly as the authentic DDK declares
+ * USBDeviceNotificationCallbackProcPtr (USB.h 1.4.1); the pb type is
+ * recovered by cast. */
+static void oms_usb_notify(void *pbv)
 {
+    USBDeviceNotificationParameterBlock *pb =
+        (USBDeviceNotificationParameterBlock *)pbv;
+
     if (pb == NULL) {
         return;
     }
