@@ -2,6 +2,8 @@
 
 Status: **audit done** (recorded in `docs/classic-usb-driver.md` §9.9, no
 driver changes); hardware isolation experiments pending on the G4.
+E4 is SATISFIED by the existing test (cross-controller freeze
+established — see Context); the pending matrix is E1-E3, E5, E6.
 
 ## Context
 
@@ -11,6 +13,14 @@ A separate defect remains: with USBMIDI9 active and the Keystation
 continuously attached, unplugging the unrelated USB mouse and plugging a
 normal HID keyboard into the G4's other USB port causes a **hard system
 freeze** (no 'q', no Cmd-Opt-Esc; forced reboot).
+
+**Bus topology (cross-controller).** Apple's Power Mac G4 Developer Note
+states the two rear external USB ports are on **separate USB root
+hubs/controllers**. The observed freeze therefore occurred
+**cross-controller** (topology change on one controller, Keystation on
+the other): no completion-status change on the Keystation's read is
+expected, and the shared-controller form of H2 is falsified (§9.9
+topology note).
 
 Ground rules from the hardware report (all honored by this plan):
 
@@ -25,10 +35,11 @@ Ground rules from the hardware report (all honored by this plan):
 ## Audit summary (evidence in `docs/classic-usb-driver.md` §9.9)
 
 - **Callbacks/status changes when another device changes:** no driver
-  notification expected; possible `kUSBAbortedError`/`kUSBNotRespondingErr`
-  on the outstanding read if the changed port shares a controller with
-  the Keystation; possible transient errors from the probe's
-  `USBGetNextDeviceByClass` walk. (§9.9.1)
+  notification expected; `kUSBAbortedError`/`kUSBNotRespondingErr` on
+  the outstanding read is possible only in a same-bus scenario — NOT
+  applicable to the observed cross-controller event (G4 rear ports are
+  on separate controllers; §9.9.1); possible transient errors from the
+  probe's global `USBGetNextDeviceByClass` walk (§9.9.1).
 - **DDK samples:** none handle unrelated-device enumeration; contract is
   "USB software aborts cleanly, driver stops on unexpected abort".
   (§9.9.2)
@@ -47,15 +58,22 @@ Ground rules from the hardware report (all honored by this plan):
 ## Ranked hypotheses
 
 1. H1 — bystander: the Mac OS 9 USB software's own hot-plug/enumeration
-   path freezes; USBMIDI9 is not on the freeze path.
-2. H2 — bus-shared abort interaction: Keystation shares a controller
-   with the changed port; re-enumeration aborts the outstanding read and
-   the USB software's abort bookkeeping (or a resubmit racing teardown)
-   wedges.
+   path freezes; USBMIDI9 is not on the freeze path. (Leading: no
+   driver receive/completion code runs in reaction to the observed
+   cross-controller event.)
+2. H2 — global USB Manager / cross-controller interaction: the USB
+   software's handling of a topology change on ONE controller wedges
+   system-wide state (global device list, task, or secondary-interrupt
+   dispatch), affecting the other controller. The shared-controller
+   form (re-enumeration aborting the Keystation's read) is **falsified
+   for the observed freeze** — the G4 rear ports are on separate
+   controllers.
 3. H3 — probe polling (`USBGetNextDeviceByClass` at task level) during
-   re-enumeration. Low prior.
+   re-enumeration: the probe's walk of the USB software's GLOBAL device
+   list is the only cross-controller structure our code touches. Low
+   prior; decided by E2.
 4. H4 — stall-clear/resubmit re-arm during a reset-induced stall. Low
-   prior.
+   prior; not applicable to the observed cross-controller event.
 
 ## Hardware experiments (next session on the G4)
 
@@ -64,23 +82,31 @@ record probe output before/after each event; force-reboot only when
 frozen.
 
 1. **E1 baseline:** mouse + Keystation, probe running. Unplug mouse;
-   plug HID keyboard into the other port. Freeze?
+   plug HID keyboard into the other port. Freeze? (Expected: yes —
+   cross-controller freeze already established.)
 2. **E2 probe off:** driver loaded, Keystation attached, probe NOT
-   running. Same topology change. Freeze? (Isolates H3.)
+   running. Same topology change. Freeze? (Isolates H3; **the decisive
+   experiment** — the probe's global device-list walk is the only
+   cross-controller structure our code touches.)
 3. **E3 driver off:** plain Mac OS 9 (USBMIDI9 not installed), Apple
    drivers only. Same topology change. Freeze? (Decides H1 vs driver
-   involvement.)
-4. **E4 bus split:** move the Keystation to a port on the OTHER USB
-   controller than the mouse/keyboard port (note: the G4 has two
-   controllers; verify which ports share a controller). Same topology
-   change. Freeze? (Isolates H2.)
+   involvement; decisive for H1/H2.)
+4. **E4 bus split: SATISFIED — removed.** The G4's two rear external
+   USB ports are on separate controllers (Apple Power Mac G4 Developer
+   Note), and the observed freeze already occurred cross-controller
+   (topology change on one controller, Keystation on the other). The
+   same-bus abort mechanism (falsified shared-controller form of H2)
+   is not the trigger.
 5. **E5 event split:** (a) unplug mouse only, wait; (b) plug keyboard
    only, wait. Does the freeze need both events?
 6. **E6 post-event state (any non-freezing configuration):** after the
    topology change, do NOT replug anything; press a Keystation key and
-   record probe output. Expected per audit: data flow stopped (read
-   aborted, loop stopped — documented limitation) or, if the abort
-   never reached us, data still flows. Record which.
+   record probe output. Expected in the observed cross-controller
+   configuration: data flow survives unchanged (no abort of our read
+   expected); data flow stopping would itself be a finding (an
+   unexpected completion status reached the driver). The abort-stop
+   expectation applies only to a same-bus scenario, which the G4's
+   rear-port layout does not produce. Record which.
 
 ## Definition of done
 

@@ -1350,6 +1350,18 @@ demonstrably works, and the freeze correlates with the unrelated-device
 enumeration / bus topology change, NOT with ordinary successful
 completion/resubmission.
 
+**Bus topology (cross-controller).** Apple's Power Mac G4 Developer Note
+states that the G4's two rear external USB ports are on **separate USB
+root hubs/controllers**. The observed freeze therefore occurred
+**cross-controller**: the topology change (mouse unplug / keyboard plug
+on the other rear port — the one not holding the Keystation) happened on
+one controller while the Keystation sat on the other. This
+is evidence, not a hypothesis: the same-bus mechanism (re-enumeration of
+the Keystation's own bus) was NOT in play during the freeze, so no
+completion-status change on the Keystation's outstanding read is
+expected (§9.9.1 item 2) and the shared-controller form of H2 is
+falsified (§9.9.6).
+
 **Audit scope and ground rules.** This section records a code/audit pass
 only — no driver changes. Per the hardware-gate report: determine what
 callbacks/status changes USBMIDI9 can receive when some OTHER device is
@@ -1373,15 +1385,19 @@ notification; preserve the now hardware-proven normal receive path.
    should NOT run: the removal path (mark `removing`, abort pipes,
    `kUSBDeviceBusy`) is not entered, and per the ground rules it must
    not be broadened on this evidence.
-2. **Completion status on the outstanding read: possible.** The only USL
-   call in flight in steady state is the bulk read. If the changed port
-   shares a USB controller (bus) with the Keystation, the USB software's
-   re-enumeration of that bus can abort outstanding transactions on
-   unrelated devices: the read completes with `kUSBAbortedError` (or
-   `kUSBNotRespondingErr`). [§5.6 item 1 documents these statuses at
-   unplug; the same mechanism applies to a same-bus topology change] If
-   the changed port is on the other controller, no completion status
-   change is expected at all.
+2. **Completion status on the outstanding read: possible, but NOT in
+   the observed event.** The only USL call in flight in steady state is
+   the bulk read. If the changed port shared a USB controller (bus)
+   with the Keystation, the USB software's re-enumeration of that bus
+   could abort outstanding transactions on unrelated devices: the read
+   would complete with `kUSBAbortedError` (or `kUSBNotRespondingErr`).
+   [§5.6 item 1 documents these statuses at unplug; the same mechanism
+   applies to a same-bus topology change] But the G4's two rear
+   external USB ports are on SEPARATE controllers (Apple Power Mac G4
+   Developer Note), so the observed freeze is the other-controller
+   case: **no completion-status change on the Keystation's read is
+   expected** — the driver's completion path was not exercised by the
+   event.
 3. **Probe-side USL calls: transient errors possible.** The probe walks
    `USBGetNextDeviceByClass` (+ `FindSymbol`) every ~0.25 s poll
    [probe.c]. During re-enumeration the global device list is
@@ -1453,40 +1469,59 @@ and is deferred; the ground rules require preserving the proven path.
 1. **H1 — bystander: the freeze is inside the Mac OS 9 USB software's
    own hot-plug/enumeration path** for the changed port, triggered by
    the topology change itself; USBMIDI9 is not on the freeze path.
-   (Era-documented USB-software hot-plug instability; on a
-   different-controller topology change our driver has no code running
-   at all.)
-2. **H2 — bus-shared abort interaction:** the Keystation shares a
-   controller with the changed port; re-enumeration aborts the
-   outstanding read, and the USB software's abort bookkeeping with a
-   pending bulk read — or a success-completion resubmit landing
-   concurrently with the teardown — wedges the USB stack. (Our
-   completion never resubmits AFTER an abort; the race, if any, is
-   between a last success resubmission and the USB software's own
-   teardown.) Whether the USB software's abort path is robust with a
-   pending bulk read is not provable from source here.
+   (Era-documented USB-software hot-plug instability; on the observed
+   cross-controller topology change no driver receive/completion code
+   runs in reaction to the event — §9.9 topology note.)
+2. **H2 — global USB Manager / cross-controller interaction:** the USB
+   software's own handling of a topology change on ONE controller
+   wedges system-wide state (its global device list, task, or
+   secondary-interrupt dispatch), affecting the OTHER controller where
+   the Keystation sits. The shared-controller form of this hypothesis
+   (re-enumeration of the Keystation's own bus aborting the outstanding
+   read) is **FALSIFIED for the observed freeze**: the two rear USB
+   ports are on separate controllers (Apple Power Mac G4 Developer
+   Note), so no abort of the Keystation's read is expected and the
+   driver's completion path was not exercised.
 3. **H3 — probe polling during re-enumeration:** `USBGetNextDeviceByClass`
-   walks the global device list at task level while the USB software
-   mutates it. Low prior (USL calls are expected to be safe at task
-   level) but not provable off-target.
+   walks the USB software's GLOBAL device list (all controllers) at
+   task level while the USB software mutates it during the
+   cross-controller event — the one cross-controller structure our
+   code touches. Low prior (USL calls are expected to be safe at task
+   level) but not provable off-target; the probe-off experiment (E2)
+   decides it.
 4. **H4 — stall-clear/resubmit re-arm during a reset-induced stall:**
-   only if a stall is actually reported during the event; low prior.
+   only if a stall is actually reported during the event; low prior
+   (not applicable to the observed cross-controller event, where no
+   completion status change on the read is expected).
 
 #### 9.9.7 Next-session hardware experiments (plan: spec/m1b-hotplug/tasks.md)
 
 E1. Reproduce the baseline (Keystation + mouse, probe running): unplug
-    mouse, plug HID keyboard → freeze?
+    mouse, plug HID keyboard → freeze? (Expected: yes — cross-controller
+    freeze is already established, §9.9 topology note.)
 E2. Probe NOT running (driver still loaded, Keystation attached): same
-    topology change → isolates the probe's polling as a factor.
+    topology change → isolates the probe's polling as a factor. **With
+    E4 satisfied this is the decisive experiment for H3** (the probe's
+    global device-list walk is the only cross-controller structure our
+    code touches).
 E3. Driver not installed (plain Mac OS 9, Apple drivers only): does the
     machine freeze without USBMIDI9 at all? (Decides H1 vs driver
-    involvement.)
-E4. Keystation moved to a port on the OTHER controller than the
-    mouse/keyboard port: isolates the same-bus abort interaction (H2).
+    involvement; decisive for H1/H2.)
+E4. **SATISFIED by the existing test — removed from the pending
+    matrix.** The G4's two rear external USB ports are on separate
+    controllers (Apple Power Mac G4 Developer Note), and the observed
+    freeze already occurred with the topology change on one controller
+    and the Keystation on the other: cross-controller freeze is
+    established, so the same-bus abort mechanism (the falsified
+    shared-controller form of H2) is not the trigger.
 E5. Unplug-only vs plug-only: does the freeze need both events?
 E6. In any configuration that does NOT freeze: record probe output after
-    the event — confirms the abort-stop behavior (data flow stops until
-    re-plug; documented limitation) or shows the read loop surviving.
+    the event. In the observed cross-controller configuration no abort
+    of the Keystation's read is expected, so data flow should survive
+    unchanged; data flow stopping would itself be a finding (an
+    unexpected completion status reached the driver). (The abort-stop
+    expectation applies only to a same-bus scenario, which the G4's
+    port layout does not produce between the two rear ports.)
 
 Definition of done: identify which component is on the freeze path
 (USB software / driver / probe) and record it; make no driver change
