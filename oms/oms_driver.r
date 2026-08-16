@@ -13,8 +13,12 @@
  *                the inspected OMS 2.3.8 driver set; determines
  *                omdvAddDevices call order only), no flags, driver
  *                compatibility level 1 (OMS 2.0+ driver API).
- *   'SICN' 128 — icon pairs used by OMS Setup (Spec: pairs, normal and
- *                highlighted). Minimal 32x32 monochrome icon + mask.
+ *   'SICN' 128 — small icon list: 16x16 monochrome bitmaps, 32 bytes
+ *                each (icon, then its mask; the OMS Spec wants pairs,
+ *                normal and highlighted — OMS Setup draws them).
+ *                One 16x16 icon + 16x16 mask (64 bytes), matching the
+ *                authentic 64-byte SICN 128 of Opcode's own SampleCell
+ *                and MIDIPort 32 drivers (verified in ~/research/oms).
  *   'ICN#'/icl8/icl4 — larger icons (present in verified period drivers;
  *                optional; omitted in v0.1 to keep the resource small).
  *   'BNDL'/'FREF' — Finder bundle for the file's icon/version.
@@ -50,88 +54,63 @@ resource 'OMdi' (128) {
     "000000000000"          /* reservedFlags[6] */
 };
 
-/* Minimal 32x32 monochrome icon: a MIDI keyboard block with a cable
- * stub (rows in hex; bit 0 = black), followed by its mask (the opaque
- * shape). 128 bytes icon + 128 bytes mask. This is ONE pair of the
- * SICN list (OMSDevice.iconID 0); further pairs can be appended on the
- * G4 with ResEdit if more icons are wanted. */
+/* 16x16 monochrome icon: a MIDI keyboard block with a cable stub (rows
+ * in hex; set bits (1) = black), followed by its mask (the opaque
+ * silhouette). 32 bytes icon + 32 bytes mask — one pair of the SICN
+ * list (OMSDevice.iconID 0); further pairs can be appended on the G4
+ * with ResEdit if more icons are wanted. Size and 16x16 format verified
+ * against authentic Opcode/Roland OMS drivers (64- and 128-byte SICN
+ * 128 resources are all lists of 32-byte 16x16 bitmaps). */
 type 'SICN' {
     hex string;
     hex string;
 };
 
 resource 'SICN' (128) {
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00FFFFE0"
-    "03FFFFF8"
-    "03FFFFF8"
-    "07EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "67EEEEFC"
-    "07EEEEFC"
-    "07EEEEFC"
-    "03FFFFF8"
-    "03FFFFF8"
-    "00FFFFE0"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000",
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "07FFFFFC"
-    "07FFFFFC"
-    "07FFFFFC"
-    "07FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "67FFFFFC"
-    "07FFFFFC"
-    "07FFFFFC"
-    "07FFFFFC"
-    "07FFFFFC"
-    "07FFFFFC"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
-    "00000000"
+    "0000"
+    "0000"
+    "0000"
+    "0000"
+    "0180"
+    "0180"
+    "0180"
+    "0180"
+    "0FF0"
+    "1668"
+    "1668"
+    "1008"
+    "1008"
+    "1008"
+    "1008"
+    "0FF0",
+    "0000"
+    "0000"
+    "0000"
+    "0000"
+    "0180"
+    "0180"
+    "0180"
+    "0180"
+    "1FF8"
+    "1FF8"
+    "1FF8"
+    "1FF8"
+    "1FF8"
+    "1FF8"
+    "1FF8"
+    "1FF8"
 };
 
-/* Version resource: 1.0.0d1, development stage. */
+/* Version resource: 1.0.0d1, development stage. Syntax per the
+ * authentic Universal Interfaces 3.3.2 MacTypes.r 'vers' template
+ * (major/minorBug/stage/nonRelRev are single hex bytes; constants are
+ * development/alpha/beta/final, not devStage) — raw layout verified
+ * against the OMS 2.3.8 IAC driver's vers 1 (02 38 80 02 00 00 + two
+ * Pascal strings). */
 resource 'vers' (1) {
-    0x0100, 0x00,
-    devStage, 0x0001,
-    verUS, 0x0000,
+    0x01, 0x00,
+    development, 0x01,
+    verUS,
     "1.0.0d1",
     "USBMIDI9 OMS Driver 1.0.0d1"
 };

@@ -148,10 +148,29 @@ Setup's search sees anything at all. Report back with those.
 
 ## Files to refresh on the G4 for the EXISTING targets
 
-Nothing changed in `classic/` or `probe/` this session. The existing
-driver and Probe targets are untouched and do not need rebuilding unless
-you want the `-Dmain` host-check naming — that is Linux-only, irrelevant
-on the G4.
+The USBMIDI9 class driver MUST be rebuilt before the OMS driver is
+built: since the previous handoff, `classic/usb_driver.c`,
+`classic/usb_driver.h` and `classic/usbmidi9_dispatch.h` changed — the
+dispatch table is now **v0x0002** with a new `setEventCallback` entry
+(the interrupt-level push hook the OMS shim registers; see
+`classic/usbmidi9_dispatch.h`). The OMS driver requires v0x0002.
+
+Required G4 sequence:
+
+1. **Rebuild the USBMIDI9 class driver** (the existing CodeWarrior
+   driver target, from the current tree).
+2. **Verify ndrv/usbd**: the rebuilt driver file has Finder type
+   `'ndrv'`, creator `'usbd'` and exports `TheUSBDriverDescription`
+   (Get Info / ResEdit / CodeWarrior project settings).
+3. **Probe regression**: with the new driver installed, the existing
+   Probe must still enumerate and receive Keystation packets (the
+   Probe's 0x0001 dispatch minimum accepts the v0x0002 driver;
+   `probe/probe.c` changed only by the `kProbeMinDispatchTableVersion`
+   constant — behavior identical, rebuilding the Probe target is
+   optional but cheap).
+4. **Then build/install the OMS driver** (Targets A and B above).
+
+The `-Dmain` host-check naming is Linux-only, irrelevant on the G4.
 
 ## Reference files on the G4/Linux
 
