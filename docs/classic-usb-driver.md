@@ -1358,7 +1358,8 @@ USB root hubs/controllers**. The observed freeze therefore occurred
 on the other rear port — the one not holding the Keystation) happened on
 one controller while the Keystation sat on the other (port assignment
 per the hardware report; to be confirmed at the next session — setup
-invariants). This is evidence, not a hypothesis: the same-bus mechanism
+invariants). This is evidence — pending verification of the Developer
+Note and the port assignment — not a hypothesis: the same-bus mechanism
 (re-enumeration of the Keystation's own bus) was NOT in play during the
 freeze, so no completion-status change on the Keystation's outstanding
 read is expected (§9.9.1 item 2) and the shared-controller form of H2 is
@@ -1509,13 +1510,15 @@ E2. Probe NOT running (driver still loaded, Keystation attached): same
 E3. Driver not installed (plain Mac OS 9, Apple drivers only): does the
     machine freeze without USBMIDI9 at all? (Decides H1 vs driver
     involvement; decisive for H1/H2.)
-E4. **SATISFIED by the existing test — removed from the pending
+E4. **SATISFIED\* by the existing test — removed from the pending
     matrix.** The G4's two rear external USB ports are on separate
     controllers (Apple Power Mac G4 Developer Note), and the observed
     freeze already occurred with the topology change on one controller
     and the Keystation on the other: cross-controller freeze is
     established, so the same-bus abort mechanism (the falsified
-    shared-controller form of H2) is not the trigger.
+    shared-controller form of H2) is not the trigger. (\*Conditional
+    on the Developer Note evidence and the port assignment, confirmed
+    in the setup invariants.)
 E5. Unplug-only vs plug-only: does the freeze need both events?
 E6. In any configuration that does NOT freeze: record probe output after
     the event. In the observed cross-controller configuration no abort

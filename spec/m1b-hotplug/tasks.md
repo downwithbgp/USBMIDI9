@@ -2,8 +2,10 @@
 
 Status: **audit done** (recorded in `docs/classic-usb-driver.md` §9.9, no
 driver changes); hardware isolation experiments pending on the G4.
-E4 is SATISFIED by the existing test (cross-controller freeze
+E4 is SATISFIED* by the existing test (cross-controller freeze
 established — see Context); the pending matrix is E1-E3, E5, E6.
+\* Conditional on the Developer Note evidence and the port assignment,
+confirmed in the setup invariants.
 
 ## Context
 
