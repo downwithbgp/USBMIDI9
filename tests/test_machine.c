@@ -550,6 +550,22 @@ static void test_removal_protocol(void)
     CHECK(gDeallocCalls == deallocs_before + 2);   /* ring + read buffer */
 }
 
+/* 8. Driver description version: the NumVersion stage byte must use the
+ * authentic MacTypes.h release-stage constant (finalStage). The invented
+ * kReleaseStageFinal name was rejected by the real CodeWarrior build
+ * (undefined identifier); this pins the field and the constant so the
+ * M1B source-gate correction cannot regress. */
+static void test_driver_description_version(void)
+{
+    NumVersion v = TheUSBDriverDescription.usbDriverType.usbDriverVersion;
+
+    CHECK(v.majorRev == 1u);
+    CHECK(v.minorAndBugRev == 0u);
+    CHECK(v.stage == finalStage);     /* authentic UI 3.3 MacTypes.h constant */
+    CHECK(v.nonRelRev == 0u);
+    CHECK(finalStage == 0x80);        /* final stage, not develop/alpha/beta */
+}
+
 int test_machine_run(void)
 {
     test_happy_path();
@@ -560,5 +576,6 @@ int test_machine_run(void)
     test_sync_read_loop_guard();
     test_immediate_error();
     test_removal_protocol();
+    test_driver_description_version();
     return g_failures;
 }

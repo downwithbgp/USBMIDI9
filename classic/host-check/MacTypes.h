@@ -30,7 +30,15 @@ typedef struct NumVersion {
     UInt8 nonRelRev;
 } NumVersion;
 
-#define kReleaseStageFinal 0x0080u
+/* NumVersion release-stage constants (MacTypes.h, Universal Interfaces
+ * 3.3): the `stage` byte of a NumVersion. The authentic header models
+ * these as enum constants, NOT k-prefixed defines. */
+enum {
+    developStage    = 0x20,
+    alphaStage      = 0x40,
+    betaStage       = 0x60,
+    finalStage      = 0x80
+};
 
 /* Memory Manager zone handle (Memory.h). */
 typedef void *THz;

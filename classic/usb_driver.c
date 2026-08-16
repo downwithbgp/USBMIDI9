@@ -377,7 +377,7 @@ USBDriverDescription TheUSBDriverDescription = {
     { 0, 0, kUSBMIDI9InterfaceClass, kUSBMIDI9InterfaceSubClass, 0 },
 
     /* Driver Info */
-    { kUSBMIDI9DriverName, 0, 0, { 1, 0, kReleaseStageFinal, 0 } },
+    { kUSBMIDI9DriverName, 0, 0, { 1, 0, finalStage, 0 } },
 
     /* Loading Options: generic matching allowed, interface matching
      * allowed, protocol not required to match. */

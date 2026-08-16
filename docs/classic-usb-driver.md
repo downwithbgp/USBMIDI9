@@ -569,7 +569,7 @@ USBDriverDescription gUSBDriverDescription = {
     0, 0,                               /* device class/subclass: n/a */
     /* usbDriverVersion (NumVersion): 4 × UInt8 fields, initialized like
        the DDK samples — majorRev, minorAndBugRev, stage, nonRelRev —
-       e.g. {1, 0, kReleaseStageFinal, 0}; value fixed at M1B */
+       e.g. {1, 0, finalStage, 0}; value fixed at M1B */
     /* Loading Options */
     0                                   /* generic matching allowed,
                                            interface matching allowed,
@@ -1126,3 +1126,46 @@ NOT claimable from this repository. Requires, on the Power Mac G4:
       in hex when keys are played (e.g. `09 90 3C 57`).
 - [ ] Hot unplug while the Probe runs: no crash, driver finalizes;
       replug restores data flow.
+
+### 9.6 M1B hardware/source-gate correction — NumVersion release stage
+
+Found by the **real CodeWarrior build on the G4** (first source-gate
+failure): `undefined identifier 'kReleaseStageFinal'` at
+`classic/usb_driver.c` (TheUSBDriverDescription's usbDriverVersion).
+`kReleaseStageFinal` had been **invented in the host-check stub header**
+(`classic/host-check/MacTypes.h`); it does not exist in the real headers.
+
+The authentic Universal Interfaces MacTypes.h (UI 3.3, the G4 build
+system's header set — see §3 Q19) models the NumVersion `stage` byte as
+enum constants, not `k`-prefixed defines:
+
+```c
+enum {
+    developStage    = 0x20,
+    alphaStage      = 0x40,
+    betaStage       = 0x60,
+    finalStage      = 0x80
+};
+```
+
+(UI 3.3–4.x MacTypes.h also has `nonReleaseStage = 0xFF`; not used by the
+driver.) The DDK 1.4.1 kit on the research media uses the same stage
+encoding in its own `Interfaces/PackageVersion.h` (`kDevelopmentRelease
+0x20`, `kAlphaRelease 0x40`, `kBetaRelease 0x60`, `kFinalRelease 0x80`).
+
+Correction applied:
+
+1. `classic/usb_driver.c`: `kReleaseStageFinal` → `finalStage`.
+2. `classic/host-check/MacTypes.h`: removed the invented
+   `#define kReleaseStageFinal 0x0080u`; models the authentic
+   developStage/alphaStage/betaStage/finalStage enum instead.
+3. Regression guard: `tests/test_machine.c`
+   `test_driver_description_version` pins
+   `TheUSBDriverDescription.usbDriverType.usbDriverVersion` to
+   `{1, 0, finalStage, 0}`; the driver source itself compiling against
+   the stub header makes a revert a compile error in `make test` and
+   `make check-classic`.
+
+Value note: `kReleaseStageFinal 0x0080u` == `finalStage` (0x80), so the
+correction is name-only — the emitted NumVersion byte is unchanged. The
+G4 CodeWarrior rebuild is the confirming gate (checklist item 1 above).
