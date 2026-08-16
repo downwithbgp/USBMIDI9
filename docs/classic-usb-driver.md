@@ -1367,7 +1367,7 @@ notification; preserve the now hardware-proven normal receive path.
    device/interface lifecycle: `kNotifyDriverBeingRemoved` (0x0B)
    before finalize at unplug, `kNotifyExpertTerminating` (0x08) at
    shutdown, and (PowerBooks only, USB 1.2+) sleep notifications
-   [§1.3, §5.6; USB.h 1.4.1 constants]. An unrelated device's
+   [§2, §5.6; USB.h 1.4.1 constants]. An unrelated device's
    add/remove does not target this driver, so `USBMIDI9NotifyProc`
    should NOT run: the removal path (mark `removing`, abort pipes,
    `kUSBDeviceBusy`) is not entered, and per the ground rules it must
@@ -1405,7 +1405,7 @@ USBMIDI9's completion implements exactly this contract [§9.9.3].
 
 | Completion status on the bulk read | Current behavior (`USBMIDI9CompletionProc`) |
 |---|---|
-| `kUSBNoErr` (with data) | enqueue to ring, resubmit via `USBMIDI9SafeUSBBulkRead` — **the hardware-proven path; unchanged** |
+| `kUSBNoErr` | enqueue bytes (data-gated on `usbActCount > 0`) to ring; resubmit via `USBMIDI9SafeUSBBulkRead` — **the hardware-proven path; unchanged** |
 | `kUSBPipeStalledError` | `USBClearPipeStallByReference` direct from completion, resubmit (sample-verified pattern). The only re-arm that can fire during a topology change; a stall during reset is unlikely (a reset clears endpoint state) |
 | `kUSBAbortedError` / `kUSBNotRespondingErr` / `kUSBDeviceDisconnected` / other | stop the loop (`kReturnFromDriver`); driver stays loaded; no resubmission; cleanup deferred to the removal notification |
 
