@@ -1,7 +1,10 @@
 # Roadmap
 
-Current status: **M1B source gate complete; driver + probe build on the
-real Power Mac G4 (CodeWarrior Pro 5.3); hardware validation pending.**
+Current status: **M1B hardware gate PASSED for matching, dispatch, and
+bulk receive on the real Power Mac G4 (CodeWarrior Pro 5.3); one
+unresolved defect: hard freeze on unrelated-device hot-plug while
+USBMIDI9 is active (code audit done, hardware isolation pending —
+`docs/classic-usb-driver.md` §9.9).**
 
 ## M0 — Repository and portable core
 
@@ -25,9 +28,12 @@ real Power Mac G4 (CodeWarrior Pro 5.3); hardware validation pending.**
 `make check-classic`). **Real-target builds done**: driver 0 errors / 43
 warnings on CodeWarrior Pro 5.3 (`ndrv`/`usbd`), Probe links and launches
 (SIOUX console) — see `docs/classic-usb-driver.md` §9.7. **M1B hardware
-gate NOT done** — acceptance requires booting Mac OS 9, attaching a real
-Keystation, and receiving real USB bytes (`docs/classic-usb-driver.md`
-§9.5 checklist).
+gate done** — on the real G4 the driver matched the MIDIStreaming
+interface, dispatched, and received real USB-MIDI packets
+(`09 90 30 50` / `09 90 30 00`) without hanging
+(`docs/classic-usb-driver.md` §9.5 checklist, §9.8). Open items: the
+Keystation hot-unplug checklist entry, and the unrelated-device hot-plug
+freeze audit (§9.9, plan in `spec/m1b-hotplug/tasks.md`).
 
 ## M2 — Generic USB-MIDI transport
 

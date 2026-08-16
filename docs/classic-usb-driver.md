@@ -1,15 +1,19 @@
 # Classic Mac OS USB Driver — Research and Design (M1A + M1B)
 
 Status: **M1A research/design gate complete; M1B source gate complete;
-first real-hardware run done (G4).** The driver and probe source exist
-(`classic/usb_driver.c`, `probe/probe.c`, see §9) and are compile-checked
-on Linux against stub headers (`make check-classic`). On the real Power
-Mac G4, generic MIDIStreaming interface matching, driver loading,
-dispatch/enumeration PASSED; the first bulk-read path run caused a hard
-system hang (completion-context re-entry into `USBBulkRead`), fixed by
-the execution-level-gated safe bulk-read helper (§9.8). Bulk receive is
-NOT yet passed on hardware —
-the M1B hardware acceptance checklist is §9.5. Everything below is sourced
+M1B hardware gate PASSED for matching, dispatch, and bulk receive
+(G4).** The driver and probe source exist (`classic/usb_driver.c`,
+`probe/probe.c`, see §9) and are compile-checked on Linux against stub
+headers (`make check-classic`). On the real Power Mac G4, generic
+MIDIStreaming interface matching, driver loading, dispatch/enumeration,
+bulk receive, and real USB-MIDI packet reception all PASSED (exact
+packets in §9.8). The earlier bulk-read hang (completion-context
+re-entry into `USBBulkRead`) was fixed by the execution-level-gated safe
+bulk-read helper (§9.8). One defect remains unresolved: a hard system
+freeze when an UNRELATED USB device is unplugged/plugged while USBMIDI9
+is active (code audit done, hardware isolation pending — §9.9). The M1B
+hardware acceptance checklist is §9.5.
+Everything below is sourced
 from primary historical Apple documentation; assertions carry a citation of
 the form
 
@@ -1024,11 +1028,11 @@ completion-context re-entry failure.*
 
 ## 9. M1B implementation (source gate)
 
-Status: **source gate complete; hardware gate attempted — generic
-interface matching and dispatch/enumeration PASSED on the real G4; bulk
-receive NOT YET PASSED** (the first read-path run caused a hard system
-hang; the completion-context bulk-read re-entry fix is §9.8, pending a
-re-run on hardware). All
+Status: **source gate complete; M1B hardware gate PASSED** — generic
+interface matching, dispatch/enumeration, bulk receive, and real USB-MIDI
+packet reception all PASSED on the real G4 (exact packets in §9.8). One
+defect remains: hard system freeze on unrelated-device hot-plug while
+USBMIDI9 is active (§9.9, audit + next-session experiment plan). All
 patterns re-verified against the authentic DDK 1.4.1 kit during
 implementation (sample files listed per claim below).
 
@@ -1137,17 +1141,22 @@ NOT claimable from this repository. Requires, on the Power Mac G4:
       creator `'usbd'`, exports from `codewarrior/USBMIDI9.exp`,
       linking USBServicesLib — **done on the G4 (0 errors / 43
       warnings; see §9.7)**; install in the Extensions folder: pending.
-- [ ] Build the Probe (`probe/probe.c`) as a CodeWarrior console app
-      (SIOUX) linking InterfaceLib + USBManagerLib.
-- [ ] Boot Mac OS 9 with the driver installed; attach the Keystation 49e
-      (or any class-compliant USB-MIDI device).
-- [ ] The driver loads for the MIDIStreaming interface (class 0x01,
-      subclass 0x03); USB Prober or the Name Registry shows `USBMIDI9`.
-- [ ] The Probe finds `USBMIDI9DispatchTable`, displays the interface
+- [x] Build the Probe (`probe/probe.c`) as a CodeWarrior console app
+      (SIOUX) linking InterfaceLib + USBManagerLib — **done on the G4;
+      launches and runs (see §9.7)**.
+- [x] Boot Mac OS 9 with the driver installed; attach the Keystation 49e
+      (or any class-compliant USB-MIDI device) — **done on the G4;
+      the receive gate passed (§9.8)**.
+- [x] The driver loads for the MIDIStreaming interface (class 0x01,
+      subclass 0x03); USB Prober or the Name Registry shows `USBMIDI9`
+      — **done via the Probe's FindSymbol lookup (§9.8)**.
+- [x] The Probe finds `USBMIDI9DispatchTable`, displays the interface
       (vid 0a4d, pid 0090, maxPacket 64), and prints real received bytes
-      in hex when keys are played (e.g. `09 90 3C 57`).
-- [ ] Hot unplug while the Probe runs: no crash, driver finalizes;
-      replug restores data flow.
+      in hex when keys are played — **done on the G4; exact packets in
+      §9.8** (e.g. `09 90 3C 57`).
+- [ ] Hot unplug of the Keystation while the Probe runs: no crash,
+      driver finalizes; replug restores data flow. **Still open.** (The
+      §9.9 freeze is an UNRELATED-device hot-plug, a separate item.)
 
 ### 9.6 M1B hardware/source-gate correction — NumVersion release stage
 
@@ -1250,9 +1259,11 @@ stationery must stay excluded from the target (it defines a second
    old inverted one.
 
 The probe is now expected to launch with no driver installed, print
-`(no USBMIDI9 driver loaded)`, and quit on 'q'. The remaining M1B
-hardware gate is §9.5 items 2+ (install driver, attach Keystation,
-receive real USB-MIDI bytes).
+`(no USBMIDI9 driver loaded)`, and quit on 'q'. The M1B hardware gate
+then PASSED on the G4 (matching, dispatch, bulk receive, real USB-MIDI
+packets — §9.8). Remaining hardware work: the Keystation hot-unplug
+checklist item (§9.5) and the unrelated-device hot-plug freeze audit
+(§9.9).
 
 ### 9.8 M1B read-path fix — safe bulk-read submission (real-G4 hang)
 
@@ -1263,7 +1274,8 @@ receive real USB-MIDI bytes).
 | Generic MIDIStreaming interface matching (composite Keystation, iface 1, class 01/subclass 03) | **PASSED** — `Attached USB-MIDI interfaces: 1`, vid=0A4D pid=0090, maxPacket=64 |
 | Driver loading / USBConfigureInterface / USBFindNextPipe | **PASSED** — bulk IN pipe found, MaxPacketSize 64 |
 | Dispatch table location + enumerate/getInfo via Probe | **PASSED** — probe printed the interface table |
-| Bulk receive (first read path) | **NOT YET PASSED** — immediately after the table print the machine became hard-unresponsive (no Q response, no Cmd-Opt-Esc); forced reboot. Treated as a driver/interrupt-context failure, not a Probe UI hang. |
+| Bulk receive (safe read path, §9.8 fix) | **PASSED** — the machine stayed responsive; real USB-MIDI packets were received and printed |
+| Real USB-MIDI packet reception | **PASSED** — exact packets: `[iface 0] 09 90 30 50` then `[iface 0] 09 90 30 00` (one Keystation key press + release; both 4-byte USB-MIDI Event Packets, CN=0, CIN=0x9: Note On, channel 1, note 0x30 = 48 = C3, velocity 0x50 = 80; then the velocity-zero Note Off) |
 
 **Root cause.** `USBMIDI9CompletionProc` resubmits reads by calling
 `USBMIDI9InitiateTransaction()`, whose `kReadBulkInPipeState` case called
@@ -1312,6 +1324,167 @@ the completion), stall retry at secondary level (direct stall-clear +
 trampolined retry), and removal still preventing resubmission at
 secondary level. Plan: `spec/m1b-readpath/tasks.md`.
 
-**Hardware gate is NOT complete.** Next run on the G4 must re-pass
-matching/dispatch AND receive real USB-MIDI bytes (Keystation) without
-hanging.
+**Hardware gate is COMPLETE for the receive path.** On the real G4 the
+re-run re-passed matching/dispatch AND received real USB-MIDI bytes
+(Keystation) without hanging — bulk receive and real packet reception
+are hardware-PASSED (§9.8 table above). The normal receive path
+(success → enqueue → completion-driven resubmission through
+`USBMIDI9SafeUSBBulkRead`) is now hardware-proven and must not be
+replaced. Remaining defect: the unrelated-device hot-plug freeze, audited
+in §9.9 (no driver change made; the proven path is preserved).
+
+### 9.9 Unrelated-device hot-plug freeze — hardware record and audit
+
+**Hardware record.** After the §9.8 receive gate passed, the following
+topology change was exercised on the same G4 (Mac OS 9, CodeWarrior-built
+driver + probe): with USBMIDI9 active and the Keystation continuously
+attached, and no other USB hot-plug activity, the unrelated USB mouse was
+unplugged and a normal HID keyboard was plugged into the G4's other USB
+port. Result: **hard system freeze** — no probe 'q' response, no
+Cmd-Opt-Esc; forced reboot. This is a separate defect from the §9.8
+read-path hang (which is fixed and hardware-proven): the receive path
+demonstrably works, and the freeze correlates with the unrelated-device
+enumeration / bus topology change, NOT with ordinary successful
+completion/resubmission.
+
+**Audit scope and ground rules.** This section records a code/audit pass
+only — no driver changes. Per the hardware-gate report: determine what
+callbacks/status changes USBMIDI9 can receive when some OTHER device is
+removed/added; inspect the DDK samples' handling of outstanding bulk
+transfers during unrelated device enumeration; inspect completion-status
+handling during this event; audit global/static state shared across
+interface instances or USB notifications; audit execution levels observed
+and allowed during enumeration. Do not broaden removal-path changes
+unless our MIDI interface itself is actually receiving removal
+notification; preserve the now hardware-proven normal receive path.
+
+#### 9.9.1 What USBMIDI9 can receive when another device changes
+
+1. **Driver notifications: none expected.** `notificationProc` is
+   invoked by the USB software for the driver's OWN matched
+   device/interface lifecycle: `kNotifyDriverBeingRemoved` (0x0B)
+   before finalize at unplug, `kNotifyExpertTerminating` (0x08) at
+   shutdown, and (PowerBooks only, USB 1.2+) sleep notifications
+   [§1.3, §5.6; USB.h 1.4.1 constants]. An unrelated device's
+   add/remove does not target this driver, so `USBMIDI9NotifyProc`
+   should NOT run: the removal path (mark `removing`, abort pipes,
+   `kUSBDeviceBusy`) is not entered, and per the ground rules it must
+   not be broadened on this evidence.
+2. **Completion status on the outstanding read: possible.** The only USL
+   call in flight in steady state is the bulk read. If the changed port
+   shares a USB controller (bus) with the Keystation, the USB software's
+   re-enumeration of that bus can abort outstanding transactions on
+   unrelated devices: the read completes with `kUSBAbortedError` (or
+   `kUSBNotRespondingErr`). [§5.6 item 1 documents these statuses at
+   unplug; the same mechanism applies to a same-bus topology change] If
+   the changed port is on the other controller, no completion status
+   change is expected at all.
+3. **Probe-side USL calls: transient errors possible.** The probe walks
+   `USBGetNextDeviceByClass` (+ `FindSymbol`) every ~0.25 s poll
+   [probe.c]. During re-enumeration the global device list is
+   transiently inconsistent; the call can return an error, which the
+   probe treats as "no driver" and self-heals on the next poll. No crash
+   path in the probe's own code (it never caches the table pointer; its
+   `state` is per-process).
+
+#### 9.9.2 DDK samples: outstanding bulk transfers during unrelated enumeration
+
+None of the kit samples (PrinterClassDriver, USBModem, KeyboardModule,
+UniversalModule) contain any handling for unrelated-device enumeration;
+they handle only their own device's removal [§9.2, §5.6]. Their read
+completion procs resubmit through `SafeUSBBulkRead` on success and on
+stall (clear + retry), and stop on any other error, leaving cleanup to
+the removal notification. The samples' contract: the USB software is
+responsible for aborting outstanding transactions cleanly during
+topology changes; a driver simply stops on an unexpected abort.
+USBMIDI9's completion implements exactly this contract [§9.9.3].
+
+#### 9.9.3 Completion-status handling during the event (current code)
+
+| Completion status on the bulk read | Current behavior (`USBMIDI9CompletionProc`) |
+|---|---|
+| `kUSBNoErr` (with data) | enqueue to ring, resubmit via `USBMIDI9SafeUSBBulkRead` — **the hardware-proven path; unchanged** |
+| `kUSBPipeStalledError` | `USBClearPipeStallByReference` direct from completion, resubmit (sample-verified pattern). The only re-arm that can fire during a topology change; a stall during reset is unlikely (a reset clears endpoint state) |
+| `kUSBAbortedError` / `kUSBNotRespondingErr` / `kUSBDeviceDisconnected` / other | stop the loop (`kReturnFromDriver`); driver stays loaded; no resubmission; cleanup deferred to the removal notification |
+
+Recorded limitation (not changed): after a non-removal abort the read
+loop does not auto-restart — if a bus re-enumeration aborts the read,
+data flow stops until the Keystation is re-plugged. Restarting safely
+requires distinguishing removal from re-enumeration (M2-class change)
+and is deferred; the ground rules require preserving the proven path.
+
+#### 9.9.4 Global/static state audit
+
+- `gUSBMIDI9Instances` / `gUSBMIDI9InstanceCount` are mutated only at
+  system task time (initialize/finalize/notify procs); the completion
+  routine touches only its own instance (PB, ring indices,
+  `lastReadStatus`/`lastReadCount`) [usb_driver.c].
+- `USBMIDI9DispatchTable` is static data; the probe re-locates it every
+  poll and never caches the pointer [probe.c].
+- The only cross-instance behavior — `kNotifyDriverBeingRemoved` marks
+  ALL instances removing — is reachable only via our own removal
+  notification, which is not expected for an unrelated-device event
+  [§9.9.1 item 1]. No shared mutable state exists that an
+  unrelated-device event could corrupt.
+
+#### 9.9.5 Execution levels observed/allowed during enumeration
+
+- initialize/finalize/notify procs: system task time [Ch 4 p. 69-71, 86].
+- Completion routine: secondary interrupt or system task level (not
+  guaranteed); all USL functions are safe from secondary interrupt level
+  or system task level [Ch 5 p. 102]. The completion path uses only USL
+  calls and pure-C ring code.
+- Enumeration of the new device runs in the USB software (task time +
+  secondary-interrupt completion dispatch). During the event our
+  completion may fire at either level; both paths are level-safe after
+  the §9.8 fix (bulk submission trampolined via
+  `CallSecondaryInterruptHandler2` at non-task level; stall-clear is a
+  direct USL call, sample-verified).
+- The probe runs at task level (GetKeys/printf/Delay are legal there);
+  it never polls at interrupt level (the documented hang hazard,
+  Ch 5 p. 103, is not present).
+
+#### 9.9.6 Ranked hypotheses (no fix attempted)
+
+1. **H1 — bystander: the freeze is inside the Mac OS 9 USB software's
+   own hot-plug/enumeration path** for the changed port, triggered by
+   the topology change itself; USBMIDI9 is not on the freeze path.
+   (Era-documented USB-software hot-plug instability; on a
+   different-controller topology change our driver has no code running
+   at all.)
+2. **H2 — bus-shared abort interaction:** the Keystation shares a
+   controller with the changed port; re-enumeration aborts the
+   outstanding read, and the USB software's abort bookkeeping with a
+   pending bulk read — or a success-completion resubmit landing
+   concurrently with the teardown — wedges the USB stack. (Our
+   completion never resubmits AFTER an abort; the race, if any, is
+   between a last success resubmission and the USB software's own
+   teardown.) Whether the USB software's abort path is robust with a
+   pending bulk read is not provable from source here.
+3. **H3 — probe polling during re-enumeration:** `USBGetNextDeviceByClass`
+   walks the global device list at task level while the USB software
+   mutates it. Low prior (USL calls are expected to be safe at task
+   level) but not provable off-target.
+4. **H4 — stall-clear/resubmit re-arm during a reset-induced stall:**
+   only if a stall is actually reported during the event; low prior.
+
+#### 9.9.7 Next-session hardware experiments (plan: spec/m1b-hotplug/tasks.md)
+
+E1. Reproduce the baseline (Keystation + mouse, probe running): unplug
+    mouse, plug HID keyboard → freeze?
+E2. Probe NOT running (driver still loaded, Keystation attached): same
+    topology change → isolates the probe's polling as a factor.
+E3. Driver not installed (plain Mac OS 9, Apple drivers only): does the
+    machine freeze without USBMIDI9 at all? (Decides H1 vs driver
+    involvement.)
+E4. Keystation moved to a port on the OTHER controller than the
+    mouse/keyboard port: isolates the same-bus abort interaction (H2).
+E5. Unplug-only vs plug-only: does the freeze need both events?
+E6. In any configuration that does NOT freeze: record probe output after
+    the event — confirms the abort-stop behavior (data flow stops until
+    re-plug; documented limitation) or shows the read loop surviving.
+
+Definition of done: identify which component is on the freeze path
+(USB software / driver / probe) and record it; make no driver change
+before that; keep the receive path byte-identical to the
+hardware-proven version.
