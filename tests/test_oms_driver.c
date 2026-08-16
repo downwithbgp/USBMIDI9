@@ -154,7 +154,10 @@ OSErr NMInstall(NMRecPtr nmRecPtr)
     CHECK(nmRecPtr->nMsg != 0u);        /* the shim stored the proc */
     /* The timer uses an absolute base: Ticks() + period, and re-arms
      * with a FIXED += period (a relative 1 would fire back-to-back and
-     * the rate would drift). */
+     * the rate would drift). NOTE: this assumes install #2+ is a poll
+     * re-arm within one mock_setup (each test starts MIDI exactly
+     * once); a stop/restart of MIDI would install a fresh absolute
+     * base and fail the else-branch assert. */
     if (gNMInstallCalls == 1) {
         CHECK(nmRecPtr->eventTime == (Ticks() + kUSBMIDI9OMSPollTicks));
     } else {
