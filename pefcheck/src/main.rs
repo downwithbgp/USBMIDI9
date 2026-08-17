@@ -157,6 +157,16 @@ fn print_report(c: &pef::Container, r: &validate::Report) {
                     entry.word, e, toc.word, t
                 );
             }
+            reloc::VectorStatus::Provisional {
+                word0,
+                word1,
+                reason,
+            } => {
+                println!(
+                    "  relocation sim: PROVISIONAL vector (word0=0x{:08x} word1=0x{:08x}) - {}; not labelled valid and not used to strengthen the verdict",
+                    word0, word1, reason
+                );
+            }
             reloc::VectorStatus::NotAVector { word0, word1 } => {
                 println!(
                     "  relocation sim: not a valid vector (word0=0x{:08x} word1=0x{:08x})",

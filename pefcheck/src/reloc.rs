@@ -46,9 +46,17 @@ pub struct RelocResult {
     /// Relocated content: the decoded prefix (length may be < unpackedLength
     /// when the packed stream is partial).
     pub content: Vec<u8>,
-    /// `Ok(())` = full decode; `Err(msg)` = partial (reserved opcode /
-    /// exhaustion), `content` holds the decodable prefix.
+    /// `Ok(())` = **complete** packed-data decode (exact unpackedSize output
+    /// AND exact packedSize consumed); `Err(msg)` = partial (reserved opcode,
+    /// exhaustion, or unconsumed trailing bytes), with `content` holding the
+    /// decodable prefix.
     pub decode_status: Result<(), String>,
+    /// True iff every relocCount 16-bit block was consumed exactly.
+    pub reloc_complete: bool,
+    /// True iff the packed-data decode AND the relocation replay are both
+    /// complete. Only then is a reconstructed vector fully VALID; otherwise it
+    /// is provisional evidence.
+    pub complete: bool,
     pub import_fixups: Vec<ImportFixup>,
     pub notes: Vec<String>,
 }
@@ -65,12 +73,22 @@ pub struct ResolvedPointer {
 /// Outcome of decoding the 8 bytes at the special-main location.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VectorStatus {
-    /// word0/word1 are non-zero and 4-byte aligned; both resolved.
+    /// The decode AND relocation replay are complete, and word0/word1 form a
+    /// valid PPC transition vector (non-zero, 4-byte aligned); both resolved.
     Valid {
         entry: ResolvedPointer,
         toc: ResolvedPointer,
     },
-    /// Bytes were readable but do not form an identifiable vector.
+    /// Reconstructed from a PARTIAL decode or relocation replay: shown as
+    /// provisional evidence only, never labelled fully valid, and never used
+    /// to strengthen the overall PASS verdict.
+    Provisional {
+        word0: u32,
+        word1: u32,
+        reason: String,
+    },
+    /// Bytes were readable, decode was complete, but they do not form an
+    /// identifiable vector.
     NotAVector { word0: u32, word1: u32 },
     /// The special-main location is beyond the decoded prefix.
     BeyondDecodedPrefix,
@@ -81,6 +99,9 @@ pub enum VectorStatus {
 pub struct VectorAnalysis {
     pub section_index: usize,
     pub main_offset: u32,
+    /// True iff the packed-data decode AND the relocation replay are both
+    /// complete. Only then is the vector reconstruction fully valid.
+    pub complete: bool,
     /// The 8 raw bytes at the special-main location, when readable.
     pub bytes: Option<[u8; 8]>,
     pub status: VectorStatus,
@@ -224,7 +245,12 @@ fn apply_program(
     content: &mut [u8],
     import_fixups: &mut Vec<ImportFixup>,
     notes: &mut Vec<String>,
-) {
+) -> bool {
+    // Returns true iff every relocCount 16-bit chunk was consumed exactly
+    // (the loop index ends == chunks.len()) AND no instruction was left
+    // unapplied (undefined opcode or an un-replayed repeat), i.e. the replay
+    // is COMPLETE.
+    let mut complete = true;
     let mut addr: u64 = 0;
     let mut sect_c = bases.first().copied().unwrap_or(0);
     let mut sect_d = bases.get(1).copied().unwrap_or(0);
@@ -313,6 +339,7 @@ fn apply_program(
                 ((v & 0x0f00) >> 8) + 1,
                 (v & 0x00ff) + 1
             ));
+            complete = false; // repeat not replayed -> replay is PARTIAL.
         } else if (v & 0xfc00) >> 10 == 0x29 {
             i += 1; // second chunk
             let next = *chunks.get(i).unwrap_or(&0) as u32;
@@ -330,6 +357,7 @@ fn apply_program(
                 ((v & 0x03c0) >> 6) + 1,
                 ((v & 0x003f) << 16) | (*chunks.get(i + 1).unwrap_or(&0) as u32)
             ));
+            complete = false; // repeat not replayed -> replay is PARTIAL.
             i += 1; // second chunk
         } else if (v & 0xfc00) >> 10 == 0x2d {
             i += 1; // second chunk
@@ -350,9 +378,11 @@ fn apply_program(
             }
         } else {
             notes.push(format!("undefined relocation opcode 0x{:04x}", ch));
+            complete = false; // undefined opcode -> replay is PARTIAL.
         }
         i += 1;
     }
+    complete && i == chunks.len()
 }
 
 // ---- public API -----------------------------------------------------------
@@ -386,7 +416,7 @@ pub fn relocate_section(c: &Container, section_index: usize) -> Result<RelocResu
     let import_names = parse_import_names(c)?;
     let mut import_fixups = Vec::new();
     let mut notes = Vec::new();
-    apply_program(
+    let reloc_complete = apply_program(
         &header.chunks,
         &bases,
         &import_names,
@@ -395,10 +425,13 @@ pub fn relocate_section(c: &Container, section_index: usize) -> Result<RelocResu
         &mut notes,
     );
 
+    let complete = decode_status.is_ok() && reloc_complete;
     Ok(RelocResult {
         section_index,
         content,
         decode_status,
+        reloc_complete,
+        complete,
         import_fixups,
         notes,
     })
@@ -442,6 +475,7 @@ pub fn special_main_vector(c: &Container) -> Option<VectorAnalysis> {
     let a = main_offset as usize;
 
     let notes = result.notes;
+    let complete = result.complete;
     let bytes = if a + 8 <= result.content.len() {
         let mut b = [0u8; 8];
         b.copy_from_slice(&result.content[a..a + 8]);
@@ -455,7 +489,25 @@ pub fn special_main_vector(c: &Container) -> Option<VectorAnalysis> {
         Some(b) => {
             let w0 = u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
             let w1 = u32::from_be_bytes([b[4], b[5], b[6], b[7]]);
-            if w0 != 0 && w0 % 4 == 0 && w1 != 0 && w1 % 4 == 0 {
+            let is_vector = w0 != 0 && w0 % 4 == 0 && w1 != 0 && w1 % 4 == 0;
+            if !complete {
+                // Provisional: the bytes look vector-like but were
+                // reconstructed from a partial decode and/or a partial
+                // relocation replay. It must not be labelled fully valid and
+                // must not strengthen the overall PASS verdict.
+                let reason = match (&result.decode_status, result.reloc_complete) {
+                    (Err(e), _) => format!("partial packed-data decode: {}", e),
+                    (Ok(()), false) => {
+                        "partial relocation replay (not all relocCount blocks consumed)".to_string()
+                    }
+                    _ => "partial reconstruction".to_string(),
+                };
+                VectorStatus::Provisional {
+                    word0: w0,
+                    word1: w1,
+                    reason,
+                }
+            } else if is_vector {
                 let bases = synthetic_bases(c);
                 let entry = resolve_pointer(&bases, &c.sections, w0);
                 let toc = resolve_pointer(&bases, &c.sections, w1);
@@ -472,6 +524,7 @@ pub fn special_main_vector(c: &Container) -> Option<VectorAnalysis> {
     Some(VectorAnalysis {
         section_index: ms,
         main_offset,
+        complete,
         bytes,
         status,
         decode_status: result.decode_status,
@@ -592,5 +645,26 @@ mod tests {
             "{:?}",
             notes
         );
+    }
+
+    #[test]
+    fn incomplete_relocation_replay_is_reported() {
+        // A 2-chunk LgByImport (0xA400) as the last chunk with NO second
+        // chunk: apply_program must report incomplete (all relocCount blocks
+        // were not consumed exactly).
+        let bases = [0x1000_0000u32];
+        let mut content = vec![0u8; 8];
+        let mut fixups = Vec::new();
+        let mut notes = Vec::new();
+        let imports = vec!["A".to_string()];
+        let complete = apply_program(
+            &[0xA400],
+            &bases,
+            &imports,
+            &mut content,
+            &mut fixups,
+            &mut notes,
+        );
+        assert!(!complete, "a truncated 2-chunk op must be incomplete");
     }
 }

@@ -118,10 +118,13 @@ placement.
 
 1. Locate the section to relocate (`relocSectionCount` headers; each fixture
    has exactly one, section index 1 = the PackedData section).
-2. Decompress kind-2 sections with the pinned packed-data scheme, returning
-   the **longest decodable prefix** and a decode status (`ok`, or
-   `partial N/M (reserved opcode k at stream byte j)`, or exhaustion).
-   A reserved opcode stops decoding but keeps the bytes already produced.
+2. Decompress kind-2 sections with the pinned packed-data scheme. The decode
+   is **COMPLETE** only when it produces exactly unpackedSize bytes AND
+   consumes exactly the section's packedSize bytes, ending on a valid
+   instruction boundary. Otherwise it returns the decodable prefix plus a
+   PARTIAL reason (reserved opcode at a genuine boundary, stream exhaustion,
+   or unconsumed trailing bytes). A partial decode is never a successful
+   reconstruction.
 3. Apply the chunk program to the decoded prefix with the additive semantics
    above. Writes whose 4-byte range falls outside the decoded prefix are
    skipped and noted (byte unknown). Reads (for resolution) require the
@@ -131,39 +134,52 @@ placement.
    `(offset, symbol_name)` as unresolved external pointers and leave the
    target word byte-for-byte unchanged (note it). They never make a
    fragment INVALID.
-5. Produce `RelocResult { content, decoded_len, decode_status, import_fixups, notes }`.
+5. The relocation replay is **COMPLETE** only if every relocCount 16-bit
+   block is consumed exactly according to the instruction stream (a truncated
+   2-chunk op at the end, or an undefined opcode consuming a block, leaves the
+   replay PARTIAL). A PARTIAL replay must be labelled PARTIAL and must not
+   upgrade structural validity.
+6. Produce `RelocResult { section_index, content, decode_status, reloc_complete, complete, import_fixups, notes }`, where `complete` = decode complete AND reloc complete.
 
 ## Special-main vector resolution
 
 If `mainSection != -1` and points at the relocated section, read the 8 bytes
 at `mainOffset` in the relocated content **when `mainOffset+8 <= decoded_len`**.
-- If `word0 != 0 && word0 % 4 == 0 && word1 != 0 && word1 % 4 == 0`, it is a
-  valid PPC transition vector: resolve each word to
+- If the decode AND relocation replay are **complete** and `word0 != 0 &&
+  word0 % 4 == 0 && word1 != 0 && word1 % 4 == 0`, it is a **valid** PPC
+  transition vector: resolve each word to
   `(section, offset = word - base[section])` for the unique section whose
   `[base, base+total)` contains it; validate `offset < total_length` and word
   alignment; report both resolutions.
+- If the bytes are readable but the decode/replay is **partial**, the
+  reconstruction is **PROVISIONAL** (shown as provisional evidence only,
+  never labelled fully valid, never used to strengthen the overall PASS
+  verdict).
 - Otherwise report the raw bytes and that it is not an identifiable vector.
-- If the location is beyond the decoded prefix, report "cannot reconstruct
-  (relocated section not fully decodable; location beyond decoded prefix)".
+- If the location is beyond the decoded prefix, report "cannot reconstruct".
 
-## Fixture expectations (from the verified prototype)
+## Fixture expectations (verified)
 
 Synthetic bases: TM `[0x10000000,0x10000470,…]`, 601 `[0x10000000,0x100000D0,…]`,
 E `[0x10000000,0x10000010,…]`, production `[0x10000000,0x10002190,…]`.
 
 | fixture | relocated section | decode | special main | result |
 |---|---|---|---|---|
-| TM | 1 (kind 2) | partial 90/167 (reserved op 5) | 1 + 0x3C | VALID vector entry→0+0, toc→1+0 |
-| 601 | 1 | ok 12/12 | 1 + 0x4 | VALID vector entry→0+0, toc→1+0 |
-| E1 | 1 | ok 8/8 | none (−1) | no special main |
-| E2a | 1 | ok 8/8 | 1 + 0x0 | VALID vector entry→0+0, toc→1+0 |
-| E2b | 1 | ok 8/8 | 1 + 0x0 | VALID vector entry→0+0, toc→1+0 (still INVALID for 0xE2 code alignment) |
-| production | 1 | partial 0/468 (reserved op 6) | none (−1) | no special main; data not reconstructible |
+| TM | 1 (kind 2) | COMPLETE 167/167 (75/75) | 1 + 0x3C | VALID vector [0x1000016C,0x10000470]: entry→0+0x16C, toc→1+0 |
+| 601 | 1 | COMPLETE 12/12 | 1 + 0x4 | VALID vector entry→0+0, toc→1+0 |
+| E1 | 1 | COMPLETE 8/8 | none (−1) | no special main |
+| E2a | 1 | COMPLETE 8/8 | 1 + 0x0 | VALID vector entry→0+0, toc→1+0 |
+| E2b | 1 | COMPLETE 8/8 | 1 + 0x0 | VALID vector entry→0+0, toc→1+0 (still INVALID for 0xE2 code alignment) |
+| production | 1 | COMPLETE 468/468 (269/269) | none (−1) | no special main |
 
-TM decodes 90 bytes; its vector offset 0x3C is within the prefix and its
-pre-relocation bytes there are zeros, so the vector is reconstructible.
-Production's data decodes to 0 bytes, so its export `main` → section 1 +
-0x80 cannot be reconstructed.
+TM and production both decode FULLY with the correct op3/op4 semantics (the
+earlier "reserved opcode 5/6" was a parser bug, not a genuinely unsupported
+opcode). TM's pre-relocation bytes at the special-main location 0x3C are
+`00 00 01 6c 00 00 00 00`; after the TVector8 relocation they become
+`10 00 01 6c 10 00 04 70` = the authentic vector [0x1000016C, 0x10000470]
+(entry = code section base + 0x16C, TOC = data section base + 0). Production
+has no special main; its export `main` → section 1 + 0x80 is now reachable in
+the fully-decoded data but is not a special-main vector.
 
 ## Deliverables
 

@@ -51,8 +51,8 @@ the G4 capture from `SampleOMSApp.mcp` target "Sample OMS PPC".
   into a non-code section (kind 1/2/4), read 8 bytes at the unpacked content +
   offset (decompress kind-2 via the packed-data scheme: opcode = byte>>5,
   value = byte&0x1F (0 => 7-bit varint), ops 0=ZeroSkip 1=BlockLiteral
-  2=Repeat 3=RepeatBlock 4=RepeatZero); identifiable only when word0 != 0
-  and both words are 4-byte aligned. Raw zero/stub bytes at the special-main
+  2=Repeat 3=RepeatBlock 4=RepeatZero); identifiable as a stored vector only
+  when BOTH word0 and word1 are non-zero and 4-byte aligned. Raw zero/stub bytes at the special-main
   location are **pre-relocation contents**: they do NOT establish that the
   vector is absent from the PEF representation — CFM relocation materializes
   pointer values at preparation (load) time. No code-range test applies
@@ -94,30 +94,37 @@ the G4 capture from `SampleOMSApp.mcp` target "Sample OMS PPC".
    code range, so a range check would be meaningless. Flat bases are
    assigned at load; the report states section + offset + raw words.
 
-## Packed-data expansion (pinned; ported from the Ghidra-verified python)
+## Packed-data expansion (pinned; matches Ghidra `SectionHeader.getUnpackedData`)
 
 Per stream byte: opcode = b >> 5, value = b & 0x1F; if value == 0,
-value = varint (7 bits/byte, high bit = continuation). Ops:
+value = big-endian varint (7 bits/byte, high bit = continuation, first byte
+most significant — Ghidra `unpackNextValue`). Ops:
 0 = Zero: emit `value` zero bytes; 1 = Block: copy `value` literal
 bytes; 2 = Repeat: count = varint, copy the `value`-byte block
-(count+1) times; 3 = RepeatBlock: len = value, count = varint,
-gap = varint; per iteration copy the len-block then the gap-block
-(`count` iterations), then one final len-block; 4 = RepeatZero:
-len = value, count = varint, emit len*(count+1) zero bytes.
-Output must not exceed unpackedLength (overrun = report, not
-INVALID); stream exhaustion / reserved opcode (5-7) = report, not
-INVALID — rule 7's decode is informational. Pinned fixture
-expectations: E1/E2a/E2b data (packed 1 byte `0x08`) unpack to 8
-zero bytes — pre-relocation stub contents (a vector, if any, is
-materialized by CFM relocation, not stored as such);
-TM data stream (0x5E0, 75 B) decodes through ops 0/1/2/4 until a
-reserved opcode 5 at stream byte 16 — reported as "not decodable
-with ops 0-4", still PASS (the TM's vector [0x1000016C,
-0x10000470] would be materialized by relocation at preparation time);
-production data stream = the known-undecodable old-PEF stream —
-same report-only treatment. None of the six fixtures stores a
-vector's pointer values in the container (their special-main target
-bytes are pre-relocation contents); the report emits the raw target
+(count+1) times; 3 = RepeatBlock: commonSize = value, customSize =
+varint, repeatCount = varint, read the common block (commonSize), then
+for each of repeatCount iterations emit the common block and read+emit a
+FRESH custom block (customSize); finally emit the common block once more;
+4 = RepeatZero: commonSize = value, customSize = varint, repeatCount =
+varint; for each of repeatCount iterations skip commonSize ZERO bytes then
+read+emit a fresh custom block (customSize); finally skip commonSize ZERO
+bytes.
+
+**Completeness:** a decode is COMPLETE only when it produces exactly
+unpackedSize bytes AND consumes exactly the section's packedSize bytes,
+ending on a valid instruction boundary. Output overrun, stream exhaustion,
+a reserved opcode (5-7) at a genuine instruction boundary, or unconsumed
+trailing packed bytes are all UNSUPPORTED/PARTIAL, never a successful
+reconstruction. A transition vector reconstructed from a partial decode is
+provisional evidence only (never labelled fully valid, never used to
+strengthen the PASS verdict). Pinned fixture expectations:
+E1/E2a/E2b data (packed 1 byte `0x08`) unpack to 8 zero bytes —
+pre-relocation stub contents; TM data (0x5E0, 75 B) and production data
+(0x2410, 269 B) each decode FULLY (167 and 468 bytes respectively) — the
+earlier "reserved opcode 5/6" reports were a parser bug from wrong op3/op4
+semantics, not genuinely unsupported opcodes. None of the six fixtures
+stores a vector's pointer values in the container (their special-main
+target bytes are pre-relocation contents); the report emits the raw target
 bytes + the relocation-stream presence (relocSectionCount,
 relocInstrOffset, raw stream bytes) for each.
 

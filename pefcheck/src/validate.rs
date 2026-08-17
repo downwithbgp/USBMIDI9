@@ -175,7 +175,10 @@ pub fn validate(c: &Container) -> Report {
                         r.target_bytes = Some(bytes.clone());
                         let w0 = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
                         let w1 = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-                        if w0 != 0 && w0 % 4 == 0 && w1 % 4 == 0 {
+                        // A stored transition vector needs BOTH words non-zero
+                        // and 4-byte aligned (entry + TOC). A zero word1 (or
+                        // word0) means the container does not store a vector.
+                        if w0 != 0 && w0 % 4 == 0 && w1 != 0 && w1 % 4 == 0 {
                             r.vector = Some(VectorInfo {
                                 word0: w0,
                                 word1: w1,

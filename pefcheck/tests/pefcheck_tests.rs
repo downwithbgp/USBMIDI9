@@ -189,29 +189,30 @@ fn crafted_loader_strings_offset_does_not_panic() {
 }
 
 #[test]
-fn tm_stream_hits_reserved_opcode_5_via_parser() {
-    // The TM data stream decodes through ops 0/1/2/4 then hits reserved
-    // opcode 5: informational note, still PASS.
+fn tm_stream_decodes_fully_via_parser() {
+    // With the corrected op3/op4 semantics the TM data stream decodes fully
+    // (no reserved-opcode note). The special-main location 0x3C holds the
+    // pre-relocation vector prefix 00 00 01 6c 00 00 00 00.
     let c = Container::parse(&fixture("tm_ppcc1.pef")).unwrap();
     let r = validate::validate(&c);
     assert!(
+        !r.notes.iter().any(|n| n.contains("not decodable")),
+        "TM must fully decode, got: {:?}",
         r.notes
-            .iter()
-            .any(|n| n.contains("not decodable") && n.contains("reserved packed-data opcode 5")),
-        "TM note missing, got: {:?}",
-        r.notes
+    );
+    assert_eq!(
+        r.target_bytes.as_deref(),
+        Some(&[0x00, 0x00, 0x01, 0x6c, 0x00, 0x00, 0x00, 0x00][..])
     );
 }
 
 // ---- relocation simulator (spec/pefcheck-reloc) ---------------------------
 
-fn assert_valid_vector(rv: &reloc::VectorAnalysis, entry_sec: usize, toc_sec: usize) {
+fn assert_valid_vector(rv: &reloc::VectorAnalysis, entry: (usize, u32), toc: (usize, u32)) {
     match &rv.status {
-        VectorStatus::Valid { entry, toc } => {
-            assert_eq!(entry.section_index, entry_sec, "entry section");
-            assert_eq!(entry.offset, 0, "entry offset");
-            assert_eq!(toc.section_index, toc_sec, "toc section");
-            assert_eq!(toc.offset, 0, "toc offset");
+        VectorStatus::Valid { entry: e, toc: t } => {
+            assert_eq!((e.section_index, e.offset), entry, "entry");
+            assert_eq!((t.section_index, t.offset), toc, "toc");
         }
         other => panic!("expected a Valid vector, got {:?}", other),
     }
@@ -223,8 +224,11 @@ fn tm_relocation_sim_resolves_vector_and_imports() {
     let rv = reloc::special_main_vector(&c).expect("TM must have a relocation analysis");
     assert_eq!(rv.section_index, 1);
     assert_eq!(rv.main_offset, 0x3c);
-    assert!(rv.decode_status.is_err(), "TM data decode is partial");
-    assert_valid_vector(&rv, 0, 1);
+    assert!(rv.complete, "TM decode+relocation must be complete");
+    assert!(rv.decode_status.is_ok(), "TM data must fully decode");
+    // The reconstructed vector [0x1000016C, 0x10000470] matches the authentic
+    // value: entry = section 0 base + 0x16C, TOC = section 1 base + 0.
+    assert_valid_vector(&rv, (0, 0x16c), (1, 0));
     // The 7 imported symbols from InterfaceLib are external fixups.
     let names: Vec<&str> = rv.import_fixups.iter().map(|i| i.symbol.as_str()).collect();
     assert_eq!(
@@ -239,8 +243,11 @@ fn tm_relocation_sim_resolves_vector_and_imports() {
             "HLock",
         ]
     );
-    // The vector bytes are the synthetic section-0 and section-1 bases.
-    assert_eq!(rv.bytes.unwrap(), [0x10, 0, 0, 0, 0x10, 0, 0x04, 0x70]);
+    // Post-relocation vector bytes at 0x3C: [0x1000016C][0x10000470].
+    assert_eq!(
+        rv.bytes.unwrap(),
+        [0x10, 0x00, 0x01, 0x6c, 0x10, 0x00, 0x04, 0x70]
+    );
 }
 
 #[test]
@@ -250,7 +257,7 @@ fn omslib601_relocation_sim_resolves_vector() {
     assert_eq!(rv.section_index, 1);
     assert_eq!(rv.main_offset, 0x4);
     assert!(rv.decode_status.is_ok(), "601 data decodes fully");
-    assert_valid_vector(&rv, 0, 1);
+    assert_valid_vector(&rv, (0, 0), (1, 0));
     assert_eq!(rv.import_fixups.len(), 1);
     assert_eq!(rv.import_fixups[0].symbol, "CallUniversalProc");
 }
@@ -264,7 +271,7 @@ fn e_series_relocation_sim_resolves_vector_for_e2a() {
     for name in ["e2a_oms.pef", "e2b_oms.pef"] {
         let c = Container::parse(&fixture(name)).unwrap();
         let rv = reloc::special_main_vector(&c).unwrap_or_else(|| panic!("{}", name));
-        assert_valid_vector(&rv, 0, 1);
+        assert_valid_vector(&rv, (0, 0), (1, 0));
     }
 }
 

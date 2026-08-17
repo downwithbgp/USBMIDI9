@@ -269,13 +269,18 @@ fn parse_exports(
 /// Packed-data decompressor (Ghidra `SectionHeader.getUnpackedData` semantics).
 ///
 /// Each stream byte: opcode = b >> 5, value = b & 0x1F; value == 0 means a
-/// 7-bit varint follows (low bits first, high bit = continuation).
-/// Ops: 0 = Zero (emit `value` zeros), 1 = Block (copy `value` literal
-/// bytes), 2 = Repeat (count = varint; copy the `value`-byte block
-/// count+1 times), 3 = RepeatBlock (len = value, count = varint,
-/// gap = varint; count x (block + gap) from the stream, then one final
-/// block), 4 = RepeatZero (len = value, count = varint; emit
-/// len*(count+1) zeros). Opcodes 5-7 are reserved.
+/// big-endian 7-bit varint follows (high bit = continuation, first byte most
+/// significant). Ops: 0 = Zero (emit `value` zeros), 1 = Block (copy `value`
+/// literal bytes), 2 = Repeat (count = varint; copy the `value`-byte block
+/// count+1 times), 3 = RepeatBlock (commonSize = value, customSize = varint,
+/// repeatCount = varint; emit the common block, then repeatCount times
+/// [common block + a FRESH custom block], then the common block once more),
+/// 4 = RepeatZero (commonSize = value, customSize = varint, repeatCount =
+/// varint; repeatCount times [commonSize ZERO bytes + a fresh custom block],
+/// then commonSize ZERO bytes). Opcodes 5-7 are reserved. A decode is COMPLETE
+/// only when it produces exactly unpackedSize bytes AND consumes exactly the
+/// packedSize bytes, ending on a valid instruction boundary (see
+/// `unpack_packed_partial`).
 pub fn unpack_packed(data: &[u8], out_len: usize) -> Result<Vec<u8>, String> {
     let (out, status) = unpack_packed_partial(data, out_len);
     status.map(|_| out)
@@ -293,15 +298,32 @@ fn grow(out: &[u8], out_len: usize, add: usize, op: &str) -> Result<(), String> 
 
 /// Like `unpack_packed`, but returns the longest decodable prefix even when
 /// the stream hits a reserved opcode or runs out, so a relocation simulator
-/// can still use the bytes it did decode. Returns `(content, Ok(()))` on a
-/// full decode; `(content, Err(msg))` on a partial one (`content` is the
-/// prefix decoded before the stop, which is shorter than `out_len`).
+/// Like `unpack_packed`, but returns the longest decodable prefix even when
+/// the stream hits a reserved opcode, runs out, or does not consume the whole
+/// container, so a relocation simulator can still use the bytes it did decode.
+///
+/// Returns `(content, Ok(()))` only on a **complete** decode: it produced
+/// exactly `out_len` initialized bytes AND consumed exactly `data.len()`
+/// packed bytes, ending on a valid instruction boundary. Any other outcome is
+/// `(content, Err(msg))` where `content` is the decodable prefix (shorter than
+/// `out_len`, or `out_len` with unconsumed trailing bytes). A partial decode is
+/// not a successful reconstruction.
 pub fn unpack_packed_partial(data: &[u8], out_len: usize) -> (Vec<u8>, Result<(), String>) {
     let mut out = Vec::with_capacity(out_len);
     let mut pos = 0usize;
     loop {
         if out.len() >= out_len {
-            return (out, Ok(()));
+            if pos == data.len() {
+                return (out, Ok(()));
+            }
+            let got = out.len();
+            return (
+                out,
+                Err(format!(
+                    "packed stream produced unpackedSize {} but consumed only {} of {} packedSize bytes",
+                    got, pos, data.len()
+                )),
+            );
         }
         if pos >= data.len() {
             let got = out.len();
@@ -389,31 +411,34 @@ pub fn unpack_packed_partial(data: &[u8], out_len: usize) -> (Vec<u8>, Result<()
                 }
             }
             3 => {
-                let blen = value;
-                let (count, p) = match varint(data, pos) {
+                // RepeatBlock (Ghidra kPEFPkDataRepeatBlock): commonSize =
+                // value, then customSize (varint), then repeatCount (varint);
+                // read the commonData block once, then for each of
+                // repeatCount iterations emit commonData then read+emit a
+                // FRESH customData block; finally emit commonData again.
+                let common_size = value;
+                let (custom_size, p) = match varint(data, pos) {
                     Ok(x) => x,
                     Err(e) => return (out, Err(e)),
                 };
                 pos = p;
-                let (gap, p) = match varint(data, pos) {
+                let (repeat_count, p) = match varint(data, pos) {
                     Ok(x) => x,
                     Err(e) => return (out, Err(e)),
                 };
                 pos = p;
-                let (block, p) = match take(data, pos, blen, "RepeatBlock") {
+                let (common, p) = match take(data, pos, common_size, "RepeatBlock") {
                     Ok(x) => x,
                     Err(e) => return (out, Err(e)),
                 };
                 pos = p;
-                let (gblock, p) = match take(data, pos, gap, "RepeatBlock") {
-                    Ok(x) => x,
-                    Err(e) => return (out, Err(e)),
+                let per_iter = match common_size.checked_add(custom_size) {
+                    Some(x) => x,
+                    None => return (out, Err("RepeatBlock size overflow".to_string())),
                 };
-                pos = p;
-                let n = match blen
-                    .checked_add(gap)
-                    .and_then(|v| v.checked_mul(count))
-                    .and_then(|v| v.checked_add(blen))
+                let n = match repeat_count
+                    .checked_mul(per_iter)
+                    .and_then(|v| v.checked_add(common_size))
                 {
                     Some(x) => x,
                     None => return (out, Err("RepeatBlock size overflow".to_string())),
@@ -428,26 +453,45 @@ pub fn unpack_packed_partial(data: &[u8], out_len: usize) -> (Vec<u8>, Result<()
                     );
                 }
                 if n > 0 {
-                    for _ in 0..count {
-                        out.extend_from_slice(block);
-                        out.extend_from_slice(gblock);
+                    for _ in 0..repeat_count {
+                        let (custom, p) = match take(data, pos, custom_size, "RepeatBlock") {
+                            Ok(x) => x,
+                            Err(e) => return (out, Err(e)),
+                        };
+                        pos = p;
+                        out.extend_from_slice(common);
+                        out.extend_from_slice(custom);
                     }
-                    out.extend_from_slice(block);
+                    out.extend_from_slice(common);
                 }
             }
             4 => {
-                let (count, p) = match varint(data, pos) {
+                // RepeatZero (Ghidra kPEFPkDataRepeatZero): commonSize =
+                // value, then customSize (varint), then repeatCount (varint);
+                // for each of repeatCount iterations emit commonSize ZERO bytes
+                // then read+emit a fresh customData block; finally emit
+                // commonSize ZERO bytes. (Interleaved zero + unique data.)
+                let common_size = value;
+                let (custom_size, p) = match varint(data, pos) {
                     Ok(x) => x,
                     Err(e) => return (out, Err(e)),
                 };
                 pos = p;
-                let c1 = match count.checked_add(1) {
-                    None => return (out, Err("RepeatZero count overflow".to_string())),
-                    Some(v) => v,
+                let (repeat_count, p) = match varint(data, pos) {
+                    Ok(x) => x,
+                    Err(e) => return (out, Err(e)),
                 };
-                let n = match value.checked_mul(c1) {
+                pos = p;
+                let per_iter = match common_size.checked_add(custom_size) {
+                    Some(x) => x,
                     None => return (out, Err("RepeatZero size overflow".to_string())),
-                    Some(v) => v,
+                };
+                let n = match repeat_count
+                    .checked_mul(per_iter)
+                    .and_then(|v| v.checked_add(common_size))
+                {
+                    Some(x) => x,
+                    None => return (out, Err("RepeatZero size overflow".to_string())),
                 };
                 if grow(&out, out_len, n, "RepeatZero").is_err() {
                     return (
@@ -458,7 +502,18 @@ pub fn unpack_packed_partial(data: &[u8], out_len: usize) -> (Vec<u8>, Result<()
                         )),
                     );
                 }
-                out.resize(out.len() + n, 0);
+                if n > 0 {
+                    for _ in 0..repeat_count {
+                        out.resize(out.len() + common_size, 0);
+                        let (custom, p) = match take(data, pos, custom_size, "RepeatZero") {
+                            Ok(x) => x,
+                            Err(e) => return (out, Err(e)),
+                        };
+                        pos = p;
+                        out.extend_from_slice(custom);
+                    }
+                    out.resize(out.len() + common_size, 0);
+                }
             }
             _ => {
                 return (
@@ -475,8 +530,10 @@ pub fn unpack_packed_partial(data: &[u8], out_len: usize) -> (Vec<u8>, Result<()
 }
 
 fn varint(data: &[u8], mut pos: usize) -> Result<(usize, usize), String> {
+    // Big-endian 7-bit groups with high-bit continuation (Ghidra
+    // `unpackNextValue`: `unpacked <<= 7; unpacked += (value & 0x7f)`).
     let mut v = 0usize;
-    let mut shift = 0usize;
+    let mut count = 0usize;
     loop {
         if pos >= data.len() {
             return Err("packed stream truncated in varint".to_string());
@@ -484,17 +541,14 @@ fn varint(data: &[u8], mut pos: usize) -> Result<(usize, usize), String> {
         let b = data[pos];
         pos += 1;
         v = v
-            .checked_add(
-                ((b & 0x7f) as usize)
-                    .checked_shl(shift as u32)
-                    .unwrap_or(usize::MAX),
-            )
+            .checked_mul(128)
+            .and_then(|x| x.checked_add((b & 0x7f) as usize))
             .ok_or_else(|| "varint overflow".to_string())?;
         if b & 0x80 == 0 {
             return Ok((v, pos));
         }
-        shift += 7;
-        if shift > 63 {
+        count += 1;
+        if count > 4 {
             return Err("varint too long".to_string());
         }
     }
@@ -531,8 +585,11 @@ mod tests {
     fn op_zero_with_varint() {
         // 0x00 then varint 0x03 -> skip 3.
         assert_eq!(unpack(&[0x00, 0x03], 3).unwrap(), vec![0u8; 3]);
-        // varint with continuation: 0xA8 0x00 -> 0x28 = 40.
-        assert_eq!(unpack(&[0x00, 0xa8, 0x00], 40).unwrap(), vec![0u8; 40]);
+        // Multi-byte big-endian varint (Ghidra unpackNextValue: first byte is
+        // the most significant 7-bit group): 0xB0 0x00 -> 48<<7 | 0 = 6144.
+        let out = unpack(&[0x00, 0xb0, 0x00], 0x1800).unwrap();
+        assert_eq!(out.len(), 0x1800);
+        assert!(out.iter().all(|&b| b == 0));
     }
 
     #[test]
@@ -561,8 +618,24 @@ mod tests {
 
     #[test]
     fn op_repeat_zero() {
-        // 0x82: opcode 4, value 2; count varint 0x02 -> 2*(2+1) = 6 zeros.
-        assert_eq!(unpack(&[0x82, 0x02], 6).unwrap(), vec![0u8; 6]);
+        // 0x82: op4, commonSize 2; customSize varint 1; repeatCount varint 2.
+        // -> [00 00] [aa] [00 00] [bb] [00 00]  (interleaved zero + data).
+        assert_eq!(
+            unpack(&[0x82, 0x01, 0x02, 0xaa, 0xbb], 8).unwrap(),
+            vec![0, 0, 0xaa, 0, 0, 0xbb, 0, 0]
+        );
+    }
+
+    #[test]
+    fn op_repeat_block_reads_fresh_custom_each_iteration() {
+        // 0x61: op3, commonSize 1; customSize varint 1; repeatCount varint 2;
+        // commonData 'A'. Each iteration emits A + a FRESH custom byte, then a
+        // final A. The two custom bytes differ, proving the block is read once
+        // per iteration (not reused).
+        assert_eq!(
+            unpack(&[0x61, 0x01, 0x02, b'A', 0x10, 0x11], 5).unwrap(),
+            b"A\x10A\x11A"
+        );
     }
 
     #[test]
@@ -588,8 +661,9 @@ mod tests {
         // must skip the empty copy and terminate via stream exhaustion.
         let err = unpack(&[0x40, 0x00, 0xff, 0xff, 0xff, 0xff, 0x7f], 8).unwrap_err();
         assert!(err.contains("exhausted"), "{}", err);
-        // op3 (0x60) with blen 0 and gap 0, huge count: same.
-        let err = unpack(&[0x60, 0x00, 0xff, 0xff, 0xff, 0xff, 0x7f, 0x00], 8).unwrap_err();
+        // op3 (0x60) with commonSize 0 and customSize 0, huge repeatCount:
+        // same - empty emit, terminates via exhaustion, no hang.
+        let err = unpack(&[0x60, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x7f], 8).unwrap_err();
         assert!(err.contains("exhausted"), "{}", err);
     }
 
@@ -600,9 +674,26 @@ mod tests {
     }
 
     #[test]
-    fn tm_stream_hits_reserved_opcode_5() {
-        // TM data stream (container 0x5E0, 75 bytes): decodes through
-        // ops 0/1/2/4, then reserved opcode 5 at stream byte 16.
+    fn incomplete_decode_with_leftover_bytes_rejected() {
+        // 0x08 (Zero 8) produces 8 bytes but leaves a trailing byte
+        // unconsumed: a COMPLETE decode must consume exactly packedSize, so
+        // unpack_packed rejects it; the partial form keeps the 8 bytes + Err.
+        let (out, status) = unpack_packed_partial(&[0x08, 0xff], 8);
+        assert!(status.is_err(), "leftover stream byte must be incomplete");
+        assert_eq!(out.len(), 8);
+        assert!(unpack(&[0x08, 0xff], 8).is_err());
+    }
+
+    #[test]
+    fn tm_stream_decodes_fully_with_correct_op_semantics() {
+        // The authentic TM pattern-data stream (container 0x5E0, 75 packed
+        // bytes, unpacked 0xA7 = 167). The earlier "reserved opcode 5 at
+        // stream byte 16" was a parser bug from wrong op3/op4 semantics: the
+        // 0xAC at idx 16 is literal/custom data inside the preceding op4
+        // (RepeatZero) instruction, not a reserved opcode. With the correct
+        // Ghidra semantics the stream decodes fully to 167 bytes consuming all
+        // 75 packed bytes; the special-main location 0x3C holds the
+        // pre-relocation vector prefix 00 00 01 6c 00 00 00 00.
         let stream: Vec<u8> = vec![
             0x1e, 0x22, 0x09, 0x9c, 0x82, 0x02, 0x08, 0x00, 0xa8, 0x00, 0x44, 0x00, 0x4c, 0x09,
             0xa0, 0x00, 0xac, 0x00, 0x88, 0x00, 0x54, 0x01, 0x6c, 0x04, 0x22, 0x03, 0x5c, 0x06,
@@ -611,7 +702,12 @@ mod tests {
             0x6e, 0x76, 0x61, 0x6c, 0x69, 0x64, 0x20, 0x73, 0x74, 0x75, 0x62, 0x20, 0x6d, 0x65,
             0x73, 0x73, 0x61, 0x67, 0x65,
         ];
-        let err = unpack(&stream, 0xa7).unwrap_err();
-        assert!(err.contains("reserved packed-data opcode 5"), "{}", err);
+        let (out, status) = unpack_packed_partial(&stream, 0xa7);
+        assert!(status.is_ok(), "TM stream must fully decode: {:?}", status);
+        assert_eq!(out.len(), 0xa7);
+        assert_eq!(
+            &out[0x3c..0x3c + 8],
+            &[0x00, 0x00, 0x01, 0x6c, 0x00, 0x00, 0x00, 0x00]
+        );
     }
 }
