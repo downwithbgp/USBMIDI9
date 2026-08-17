@@ -352,10 +352,17 @@ omdvAddDevices, no *par1 read).
   `87d12ec09db1d411e261d648f99b93cd04eb96977053e6702d1abf50b5d2dd60`.
   Byte diff vs E1: 0x30-0x3B (sec0 total/unpacked/packed 8 → 20),
   0x3C-0x3F (containerOff 0xF0 → 0xE2), 0x80-0x83 (mainSection -1 →
-  1), 0xE2-0xF5 (the 20 code bytes). Ghidra: main/.main @
-  0x10000000 = the 5 instructions above; the vector stays in the
-  data section (relocated [0x10000000, 0x10000020]) as the special
-  main target. E1/E2a/E2 all preserved (9b5f6182… / fa86b26d… /
+  1), 0xE2-0xF5 (the 20 code bytes). Ghidra: the CFM special main
+  (loader-info mainSection=1/mainOffset=0 → section 1 + 0) is
+  **`.main @ 0x10000020`** — the data section base — whose 8 bytes
+  are the transition vector `10 00 00 00 10 00 00 20` =
+  [code 0x10000000, TOC 0x10000020]; the exported `main` entry also
+  resolves to 0x10000020 (class 2, value 0, section 1). The bytes at
+  the vector's code target 0x10000000 = the 5 instructions above.
+  (The `main`/`entry @ 0x10000000` labels are the PefDebugAnalyzer's
+  vector-dereference inference at the code target, NOT the special or
+  exported main — benign; its disassembly error at 0x10000014 is the
+  expected read past the 20-byte code block.) E1/E2a/E2 all preserved (9b5f6182… / fa86b26d… /
   54fec171…).
 - G4 gate for E2b (when authorized): same as E2a — put the E2b bytes
   at USBMIDI9:USBMIDI9_OMS (sha256 87d12ec0…), repackage the same
