@@ -1,0 +1,93 @@
+# Runtime traces — MacsBug / G4 experiment ledger
+
+Compact record of the important G4/MacsBug experiments. **Runtime
+addresses (0x018Cxxxx style) appear ONLY here** and are load-specific:
+the fragment moves between boots, so never reuse them across sessions.
+PPCC-relative stops are container-relative and reusable.
+
+Provenance: rows marked `source: session-memory` were recorded from
+G4 session notes/chat that have NOT yet been preserved as raw files in
+this repo. **TO PRESERVE:** transcribe the G4 MacsBug transcript (or
+hash the transcript file) into this ledger before upgrading those rows
+to PROVEN (see evidence-ledger H1 and the review note in
+spec/oms-re-corpus/tasks.md).
+
+## T1. The repeatable FFFFFFF3 crash (source: session-memory; PROVEN fact, exact faulting instruction not captured)
+
+- artifact sha: trace-build PEF of commit 3d76191 (hash not preserved —
+  the G4-built PEF was not copied back; see artifacts.toml "missing").
+- build config: USBMIDI9_OMS_TRACE_SEARCH DebugStr trace build.
+- observed: OMS Setup → Search → **68K Address Error, PC=FFFFFFF3**
+  (the 68K exception vector). Repeatable across runs.
+- result: reproduced AFTER b88c5a7 (the add1device UPP fix), so that
+  fix does not explain FFFFFFF3 (evidence-ledger P8).
+- interpretation: a 68K-side fault in the OMS library's driver
+  invocation path (STRONG INFERENCE S1); the exact faulting 68K
+  instruction was never captured — that is the remaining objective of
+  the low-level-trap trace build.
+
+## T2. Register/stack invariants at a FFFFFFF3 stop (source: session-memory; HYPOTHESIS H1 — no semantics assigned)
+
+- object at 0x01856100 is an OMS-internal record LARGER than the SDK
+  OMSDriverTableEntry (name field at +0x0E, not +0x0C; SDK sizeof
+  0x4E).
+- A0 = A2 + 0x66, matching the loader's interior-pointer pattern
+  (`lea.l $66(a2),a0` at 0x0DC16; +0x62 = mainAddr, +0x66 = FSSpec).
+- FFFFFFF3 is NOT present in the 0x80-byte dump at the stop.
+- Recorded without assigning unsupported semantics; TO PRESERVE: raw
+  register dump.
+
+## T3. E0 msg=00FF trace stop (source: session-memory; STRONG INFERENCE)
+
+- artifact: trace build 3d76191 (DebugStr era).
+- observed at E0 (main entry): **msg=0x00FF, par1=<runtime pointer>,
+  par2=1**; the stack independently contained those arguments
+  (proof captured at the stop).
+- result: static analysis of the same build shows main reads msg in r3;
+  oms_handle_message does `extsh r0,r29; cmplwi r0,0x2b; bgt default`;
+  0x00FF = 255 > 43 → default → `li r3,0` → epilogue blr. **Returns 0
+  cleanly — the 0x00FF entry call is NOT the fault site.**
+- **NO I0..IR or T0..T5 checkpoint fired** in the same run — the
+  failing Search never reached oms_init/omdvAddDevices. This falsifies
+  the earlier "the failing run reached omdvAddDevices" assumption
+  (false-leads F7).
+- interpretation: msg 0x00FF has no literal site in the library
+  (oms-2.3.8-map M3); it arrives via a variable-message path; caller
+  not conclusively identified (S2).
+
+## T4. E-series G4 runtime results (PROVEN — docs/oms-ppcc-entry-crash.md)
+
+| artifact (sha prefix) | build/config | result | interpretation |
+|---|---|---|---|
+| E1 9b5f6182 (257 B minimal entry, mainSection=-1) | USBMIDI9_OMS_DIAG_MINIMAL_ENTRY, Main blank | System Error type 2/type 3 on Search | exported `main` did not establish a CFM mainAddr; production init exonerated |
+| E2a fa86b26d (E1 + mainSection 0x80-0x83: -1→1) | patched 4 bytes | **System Error Type 10** (failure moved) | valid special main changes execution; crash in entry-call path with vector main |
+| E2b 87d12ec0 (direct-code, code @0xE2) | patched | illegal instruction; MacsBug: code not word-aligned | **INVALID PEF** (code containerOffset 0xE2 % 16 = 2); no evidence value — FROZEN |
+| b46c7251 (call/return diag: omdvInit→-1) | linker-generated special main (Main=main), DIAG_MINIMAL_ENTRY | **OMS Setup → Search completed, NO crash** | entry-call path CLOSED (evidence-ledger P10) |
+
+## T5. GT experiments (source: session-memory)
+
+- **stale-absolute-address GT (INVALID):** GT at absolute 0x01936C30
+  (a `main` final `blr` address captured in an earlier boot) — invalid
+  because the fragment moves between boots; addresses from one session
+  cannot be reused (PEF7). Falsifies nothing; retracted (F8).
+- **valid relative-offset GT:** GT at main+offset (relative to the
+  fragment base, computed in-session) showed that after the DebugStr
+  break and G, execution did **NOT return to main+0x1A58** — i.e. the
+  post-DebugStr continuation diverged from the intended path,
+  demonstrating that DebugStr-based instrumentation is not transparent
+  across the PPC↔68K boundary (evidence-ledger P9).
+- The low-level trap (0x7F800008) replaces both: stops at the
+  instruction after the trap with registers preserved, so the
+  continuation is always the intended one (docs/g4-handoff.md).
+
+## T6. The low-level-trap trace build (current, committed 67d7aed)
+
+- mechanism: kPowerPCLowLevelDebuggerTrap = 0x7F800008 at E0/I0–I6/IR/
+  T0–T5 after each breadcrumb write; DX ON; G between checkpoints;
+  record PPCC-relative offset per stop; identify checkpoint from the
+  tag table (docs/g4-handoff.md). Registers preserved — the stop before
+  a between-checkpoint crash is trustworthy.
+- **NOT YET RUN on the G4** — this is the pending experiment. Post-run,
+  fill the checkpoint|code offset|PPCC-relative offset|trap bytes|next
+  instruction table from `pefcheck --trapcheck --expect=15` output and
+  transcribe the stops here.

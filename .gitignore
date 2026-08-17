@@ -24,3 +24,6 @@ TheVolumeSettingsFolder/
 # source copies that duplicate classic/. The canonical sources live in
 # classic/ and probe/.
 USBMIDI9/
+
+# Python bytecode (tools/re smoke tests)
+__pycache__/

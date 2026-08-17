@@ -31,7 +31,7 @@ SAN_CORE_OBJS := $(CORE_SRCS:%.c=$(SAN)/%.o)
 SAN_RING_OBJS := $(RING_SRCS:%.c=$(SAN)/%.o)
 SAN_TEST_OBJS := $(TEST_SRCS:%.c=$(SAN)/%.o)
 
-.PHONY: all test test-sanitize check-classic check-trace clean
+.PHONY: all test test-sanitize check-classic check-trace check-re-tools clean
 
 all: $(BUILD)/libusbmidi9.a $(BUILD)/test_usbmidi9
 
@@ -162,6 +162,10 @@ check-trace:
 	    exit 1; \
 	fi; \
 	echo "check-trace: PASS - exactly 15 x 7F 80 00 08 in .text of the trace-build object"
+
+# Smoke tests for the docs/re reverse-engineering toolkit (tools/re/).
+check-re-tools:
+	tools/re/smoke.sh
 
 clean:
 	rm -rf $(BUILD) $(SAN)

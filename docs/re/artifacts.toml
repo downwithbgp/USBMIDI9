@@ -1,0 +1,185 @@
+# Artifact manifest — USBMIDI9 OMS/PEF RE corpus
+#
+# Machine-readable provenance for every important artifact. Proprietary
+# Opcode/Apple binaries are **hash-only** (NOT committed); repo fixtures
+# are committed and referenced by path. `in_repo` entries are validated by
+# `pefcheck/tests/pefcheck_tests.rs` sha256 pins (fixtures) and by
+# `tools/re/smoke.sh`.
+
+# --- Repo fixtures (committed; sha256 pinned by pefcheck tests) ---
+
+[[artifact]]
+name = "tm_ppcc1"
+path = "pefcheck/fixtures/tm_ppcc1.pef"
+sha256 = "4a0978fe6ee557a31a75fa46c5941d0a249433c93f745efc022eef3635c5a295"
+size = 1579
+source = "OMS 2.3.8 'OMS Time Manager.rsrc' PPCC 1 (authentic Opcode component)"
+resource = "PPCC 1"
+status = "known-good"      # works on the G4; the reference PEF shape
+notes = "special main = section 1 + 0x3C; vector [0x1000016C,0x10000470]"
+
+[[artifact]]
+name = "omslib_ppcc601"
+path = "pefcheck/fixtures/omslib_ppcc601.pef"
+sha256 = "e5c47142e5e844b654a09383425bdad7f28baa05b0c1bb29dfe2061db2fefce7"
+size = 481
+source = "OMS 2.3.8 library PPCC 601 (authentic Opcode component)"
+resource = "PPCC 601"
+status = "known-good"
+notes = "special main = section 1 + 0x4; vector [0x10000000,0x100000D0]"
+
+[[artifact]]
+name = "production_usbmidi9"
+path = "pefcheck/fixtures/production_usbmidi9.pef"
+sha256 = "d33f3d3d89a0e82fb6d759175c0936f8d5e850e34c5c19f265cf833fdd4720c2"
+size = 9501
+source = "USBMIDI9 OMS PEF target, pre-Main-fix build (2026-08-16)"
+status = "known-good-structural / diagnostic"   # mainSection=-1: no special main
+notes = "export main = class 2, value 0x80, section 1 (transition vector); loader mainSection = -1; replaced on the G4 by the Main=main build"
+
+[[artifact]]
+name = "e1_oms"
+path = "pefcheck/fixtures/e1_oms.pef"
+sha256 = "9b5f6182dafce541a6ca02fec243af245109974afb198cd9fd2beef790579916"
+size = 257
+source = "USBMIDI9 OMS target with USBMIDI9_OMS_DIAG_MINIMAL_ENTRY (== /tmp/omsdiag/diag_oms.pef)"
+status = "diagnostic (FROZEN)"
+notes = "minimal entry li r3,0; blr; mainSection=-1; G4: type-2/3"
+
+[[artifact]]
+name = "e2_oms"
+path = "/tmp/omsdiag/e2_oms.pef"       # NOT committed; hash-only
+sha256 = "54fec171311f39d0fafb8464602e3877f5a7933c89d74d9772532d6099bb8647"
+size = 257
+source = "direct-code E2 variant (host-prepared, never staged)"
+status = "diagnostic (FROZEN, never run)"
+notes = "the direct-code special-main variant; superseded by E2a/E2b sequence"
+
+[[artifact]]
+name = "e2a_oms"
+path = "pefcheck/fixtures/e2a_oms.pef"
+sha256 = "fa86b26d440fbefe4875b255a73df94985304e587a27f71e46b7396700b99907"
+size = 257
+source = "E1 + 4-byte loader patch (mainSection 0x80-0x83: -1 -> 1)"
+status = "diagnostic (FROZEN)"
+notes = "G4: System Error Type 10 (vs E1 type-2/3); byte diff vs E1 = exactly 0x80-0x83"
+
+[[artifact]]
+name = "e2b_oms"
+path = "pefcheck/fixtures/e2b_oms.pef"
+sha256 = "87d12ec09db1d411e261d648f99b93cd04eb96977053e6702d1abf50b5d2dd60"
+size = 257
+source = "direct-code variant, code section containerOffset 0xE2"
+status = "known-bad (INVALID; FROZEN)"
+notes = "code containerOffset 0xE2 not 16-aligned -> invalid PEF; carries no evidence"
+
+# --- Proprietary Opcode/Apple binaries (hash-only; NOT committed) ---
+
+[[artifact]]
+name = "omslib_proc1"
+sha256 = "3655f74d202c29db3b45eb83a122642b5e989de08c84f4d52e010e449920cc07"
+size = 86507
+source = "OMS 2.3.8 'Open Music System.rsrc' PROC 1 (proprietary Opcode)"
+resource = "PROC 1"
+status = "known-good"
+notes = "the primary RE target; all oms-2.3.8-map.md 68K offsets are into this blob; extracted with tools/re/rsrc_list.py; currently at /tmp/omsdiag/omslib_proc1.bin"
+
+[[artifact]]
+name = "oms_setup_code1"
+sha256 = "19662c84b8542519f00e589027814b88358404686895920e60af01701661b550"
+size = 140038
+source = "OMS Setup code resource (proprietary Opcode)"
+status = "known-good"
+notes = "OMS Setup Search logic; driver-call-site map incomplete (oms-2.3.8-map.md M5)"
+
+[[artifact]]
+name = "oms_setup_proc1"
+sha256 = "277050e3527cba46bda5d22353a07bf5543849ff93072554d91b8019ab579270"
+size = 604
+source = "OMS Setup PROC 1 (proprietary Opcode)"
+status = "known-good"
+
+[[artifact]]
+name = "omslib_ppc_slb"
+sha256 = "b6c60b4d8aee864e068542b932242718bc06afaf321340b6d8fda0b6c6608544"
+size = 18240
+source = "OMS 2.3.8 OMSLibPPC.slb (proprietary Opcode)"
+status = "known-good"
+notes = "CFM-68K shared library importing CallUniversalProc by name (mixed-mode.md)"
+
+[[artifact]]
+name = "oms_code1"
+sha256 = "42e4e831303d23df6edf20e6d880f95873c904b7ed33041e128230613323bd03"
+size = 9336
+source = "extracted code blob during RE (provenance: /tmp/oms_code.bin)"
+status = "diagnostic"
+notes = "intermediate extraction; superseded by omslib_proc1"
+
+[[artifact]]
+name = "oms_code2"
+sha256 = "495aecf866efd2633fb92f1c72b6835f041314cbf67124913beaa3871b0a0dee"
+size = 10096
+source = "extracted code blob during RE (provenance: /tmp/oms_code2.bin)"
+status = "diagnostic"
+notes = "intermediate extraction; superseded by omslib_proc1"
+
+# --- Our own build artifacts (hash-only where not committed) ---
+
+[[artifact]]
+name = "ppcc1_extracted"
+sha256 = "746dc2ce34658b0cfbd658e6e539beb696e1804461d21734c468729f9607ac97"
+size = 10461
+source = "USBMIDI9 OMS driver file 'PPCC' 1 (our build, pre-Main-fix era)"
+resource = "PPCC 1"
+status = "diagnostic"
+notes = "extracted with tools/re/rsrc_list.py (verified byte-exact); older 10461-B build, distinct from the 9501-B production fixture"
+
+[[artifact]]
+name = "oms_driver_resfork"
+sha256 = "e835c9efab4362afe4215d70e2242d56e2514dbc47f208abd93b16c1e561a901"
+size = 10965
+source = "USBMIDI9 OMS Driver resource fork (our build)"
+status = "diagnostic"
+notes = "contains OMdi 128 + SICN 128 + vers 1 + PPCC 1 (10461 B); the G4 ResEdit byte gates validated OMdi 128 = 7F 10 00 00 00 00 00 01 00 01 00 00 00 00 00 00"
+
+[[artifact]]
+name = "omdi128"
+sha256 = "6f2363eb95d962485922b5c215f02fb9bf89b6ccad6fd4b4bbe07733c5420a1e"
+size = 16
+source = "our 'OMdi' 128 raw payload"
+resource = "OMdi 128"
+status = "known-good"
+notes = "pinned by tests/test_omdi_resource.c; typed-Rez boolean bit-packing retracted (false-leads F4)"
+
+[[artifact]]
+name = "keystation-49e"
+path = "fixtures/keystation-49e.bin"
+sha256 = "51e3f2c909643db45a197c60ab9574738e858f8f77c60b4b4e630e8b175ce222"
+size = 119
+source = "Keystation 49e USB-MIDI capture (hardware)"
+status = "known-good"
+notes = "host test fixture (test_packets etc.)"
+
+[[artifact]]
+name = "mixedmode332_h"
+sha256 = "b8e00c7890ea753e55e6a60a9584f2a9b41d3f51e8a05c955b919d9134cda4ec"
+size = 32592
+source = "Apple Universal Interfaces 3.3.2 MixedMode.h (proprietary Apple header)"
+status = "known-good"
+notes = "the macro source for the ProcInfo decodes (mixed-mode.md); regenerable from the UI 3.3.2 mirror (~/research/ui332); currently at /tmp/MixedMode332.h"
+
+# --- Missing / external-only artifacts ---
+
+[[artifact]]
+name = "diag_callreturn_b46c7251"
+sha256 = "b46c7251…"   # full hash NOT preserved in the repo
+source = "G4-built USBMIDI9_OMS_DIAG_MINIMAL_ENTRY PEF with linker-generated special main"
+status = "known-good (G4 runtime PASS, 2026-08-18)"
+notes = "MISSING from the repo: the G4-built PEF was not copied back. Re-derivable by rebuilding the target with Main=main + DIAG_MINIMAL_ENTRY. Evidence of its PASS: docs/g4-handoff.md gate order."
+
+[[artifact]]
+name = "trace_build_3d76191"
+sha256 = "unknown"     # G4-built trace PEF was not preserved
+source = "G4-built USBMIDI9_OMS_TRACE_SEARCH (DebugStr era) PEF"
+status = "diagnostic (superseded by the low-level-trap build 67d7aed)"
+notes = "MISSING from the repo; the E0 msg=00FF stop (runtime-traces T3) is session-memory-sourced until the transcript is preserved."

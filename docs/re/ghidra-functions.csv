@@ -1,0 +1,38 @@
+# ghidra-functions.csv — durable offset→name export for the OMS RE work.
+# One row: <address-hex>,<label>[,<comment>]
+# Addresses are Ghidra-image addresses: the 68K blob (omslib_proc1.bin)
+# imports at base 0; the PEF imports at its image base (code section base
+# for the production build was 0x10000000). Reapply with
+# tools/re/ghidra/ApplyLabels.java on a fresh import. Auto-generated
+# FUN_ names are NOT preserved (no knowledge content); only assigned
+# names and their evidence pointers.
+#
+# --- OMS 2.3.8 library PROC 1 (68K, base 0; docs/re/oms-2.3.8-map.md) ---
+0000dce4,loadCode,Get1Resource('PPCC'/'PROC'); trap A81F at 0xDD08
+0000dd08,get1resource_site,Get1Resource trap A81F; id = OMdi+6 xxportNumB
+0000daa2,driver_load_fn,loads PPCC via Get1Resource + GetDiskFragment; pref=2 continuation 0xDB6E..0xDC1E
+0000dbdc,getdiskfragment_site,GetDiskFragment trap AA5A; mainAddr out at driver-record +0x62
+0000dc16,interior_ptr_lea,lea.l $66(a2) a0; +0x62=mainAddr +0x66=FSSpec
+000010a36,driver_msg_dispatcher,single dispatcher for all driver messages; builds 14-byte arg block
+00001075e,driver_type_check,picks PPC path 0x10B1C vs 68K
+000010b1c,ppc_driver_call_path,PPC branch of the dispatcher
+000010c86,calluniversalproc_site,only Mixed Mode trap (A9E2) in the blob; procInfo 0xFB0
+000010b6c,return_handling,tst.w d3; bne 0x10BEE error path
+000010bee,error_path,flags&4 -> return 2; else reporter 0x10934
+000010934,error_reporter,lazily installed at (0x894 A4)
+000099b6,list_dispatcher,generic list-dispatcher; reads msg from caller $10(a7)
+00009f4a,list_dispatcher_caller,only direct caller of 0x99B6; passes msg 0x23
+000054fc,tqna_msg_site,sends msg=0x1000 to a TQna driver
+0002b990,omdvtestdevice_site,omdvTestDevice handler location
+#
+# --- Authentic OMS Time Manager PPCC stub (PEF code section; docs/re/oms-2.3.8-map.md M6) ---
+1000016c,tm_stub_main,plain CW pascal PPC code; msg==0 writes *par1 (stw r0 0(r28) @0x1000026C) and returns 0; -1/-2 bridge to 68K PROC 1
+1000026c,tm_init_write_par1,stw r0 0(r28): omdvInit writes a word to *par1 before returning 0
+100001dc,tm_internal_failure,li r3 -1 on internal failure
+#
+# --- USBMIDI9 production PEF (PPC code section, image base 0x10000000; docs/re/oms-2.3.8-map.md M7) ---
+10001484,main,real pascal main: mflr r0; stw r0 8(r1); stwu r1 -64(r1); sth r3 0x5a(r1) (pre-Main-fix build)
+10001390,oms_handle_message,extsh msg; cmplwi r0 0x2b; bgt default (returns 0)
+10000338,oms_rx_event,address-taken callback (vector in loader info)
+100007c0,oms_tx_send,address-taken callback (vector in loader info)
+10000cd4,usb_notify_callback,address-taken callback (vector in loader info)
