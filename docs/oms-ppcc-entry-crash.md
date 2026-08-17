@@ -173,6 +173,20 @@ E2a = 257 bytes, sha256
 (E1 sha256 `9b5f6182...` and the direct-code E2 sha256
 `54fec171...` both preserved untouched).
 
+**E2a G4 RUNTIME RESULT (2026-08-18):** installed and run — OMS
+Setup → Search now fails with **System Error Type 10**, whereas the
+preserved E1 produced the previous failure (type-2/type-3). The
+changed failure mode is evidence that adding the PEF special main
+materially changed execution: the fragment main is now found and
+invoked (E1's mainSection=-1 never established a CFM mainAddr), and
+the crash now occurs somewhere in the entry-call path with a valid
+special main pointing at the transition vector. Direct-code E2 is
+NOT staged or runtime-tested yet; E1/E2a/E2 all preserved unchanged.
+Next step (in progress): read-only static trace of the OMS 2.3.8
+driver invocation path (GetDiskFragment result → mainAddr call
+mechanism → msg/par1/par2 values → return handling → subsequent
+messages), then propose E2b.
+
 **Runtime interpretation (per the E1/E2a A/B):** E2a succeeds while
 E1 crashes ⇒ the missing PEF special main symbol is the root cause;
 the exported `main` was insufficient. Transition vectors are
