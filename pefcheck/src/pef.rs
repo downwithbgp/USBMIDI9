@@ -35,13 +35,21 @@ impl Section {
     }
 }
 
+/// The PEF loader info header — a fixed 56-byte structure of 14 four-byte
+/// fields (Mac OS Runtime Architectures). `mainSection`, `initSection` and
+/// `termSection` are SInt32 (a value of -1 = no such symbol); all other
+/// count/offset fields are UInt32. There is no SInt16 loader-header layout
+/// to override — the SInt16 sectionIndex belongs to the PEF exported-symbol
+/// table entry (`Export::section_index`), not to the loader header. The
+/// parser keeps the raw big-endian u32 decode internally and exposes the
+/// three signed fields as `i32`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LoaderInfo {
-    pub main_section: u32,
+    pub main_section: i32,
     pub main_offset: u32,
-    pub init_section: u32,
+    pub init_section: i32,
     pub init_offset: u32,
-    pub term_section: u32,
+    pub term_section: i32,
     pub term_offset: u32,
     pub imported_library_count: u32,
     pub total_imported_symbol_count: u32,
@@ -143,11 +151,11 @@ impl Container {
         need(data, lo, ll, "loader container")?;
         need(data, lo, 0x38, "loader info header")?;
         let loader = LoaderInfo {
-            main_section: u32_at(data, lo),
+            main_section: u32_at(data, lo) as i32,
             main_offset: u32_at(data, lo + 4),
-            init_section: u32_at(data, lo + 8),
+            init_section: u32_at(data, lo + 8) as i32,
             init_offset: u32_at(data, lo + 12),
-            term_section: u32_at(data, lo + 16),
+            term_section: u32_at(data, lo + 16) as i32,
             term_offset: u32_at(data, lo + 20),
             imported_library_count: u32_at(data, lo + 24),
             total_imported_symbol_count: u32_at(data, lo + 28),

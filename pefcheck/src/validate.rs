@@ -119,10 +119,10 @@ pub fn validate(c: &Container) -> Report {
 
     // Special main (mechanical, rule 7).
     let ms = c.loader.main_section;
-    if ms == 0xffff_ffff {
+    if ms == -1 {
         r.notes
             .push("loader mainSection = -1 (no main symbol)".to_string());
-    } else if ms as usize >= c.sections.len() {
+    } else if ms < 0 || ms as usize >= c.sections.len() {
         r.errors.push(format!(
             "mainSection {} out of range ({} sections)",
             ms,
@@ -131,7 +131,7 @@ pub fn validate(c: &Container) -> Report {
     } else {
         let s = &c.sections[ms as usize];
         let target = MainTarget {
-            section_index: ms,
+            section_index: ms as u32,
             offset: c.loader.main_offset,
             kind: s.kind,
         };
@@ -178,8 +178,10 @@ pub fn validate(c: &Container) -> Report {
                             });
                         } else {
                             r.notes.push(format!(
-                                "target bytes {:02x?} = not an identifiable transition vector \
-                                 (zero or misaligned words - relocation-materialized)",
+                                "raw special-main bytes {:02x?} are pre-relocation contents \
+                                 (zero/stub); this does not establish the vector is absent \
+                                 from the PEF representation - CFM relocation materializes \
+                                 pointer values at preparation time",
                                 bytes
                             ));
                         }

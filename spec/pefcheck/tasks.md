@@ -24,17 +24,19 @@ the G4 capture from `SampleOMSApp.mcp` target "Sample OMS PPC".
   kinds: 0=Code 1=UnpackedData 2=PackedData 3=Constant 4=Loader 5=Debug
   6=ExecutableData 7=Exception.
 - Loader section (kind 4) container = loader info (NOT packed).
-  LoaderInfoHeader = 14 × u32 (56 bytes) — **byte-derived from the
-  fixtures**: the authentic CW-built TM/601/E-series loaders are
-  self-consistent only as u32 fields (TM: mainSection=1,
-  mainOffset=0x3C, init=-1, term=-1; the official PEF spec's SInt16
-  layout would misread the TM as mainSection=0/initSection=1 —
-  incoherent for a working fragment). Field order: mainSection u32,
-  mainOffset u32, initSection u32, initOffset u32, termSection u32,
-  termOffset u32, importedLibraryCount u32, totalImportedSymbolCount
-  u32, relocSectionCount u32, relocInstrOffset u32, loaderStringsOffset
-  u32, exportHashOffset u32, exportHashTablePower u32,
-  exportedSymbolCount u32.
+  LoaderInfoHeader = fixed 56-byte structure of 14 four-byte fields
+  (Mac OS Runtime Architectures). `mainSection`, `initSection` and
+  `termSection` are SInt32 (a value of -1 = no such symbol); the
+  remaining count/offset fields are UInt32. There is **no SInt16
+  loader-header layout** to override; the SInt16 sectionIndex belongs
+  to the PEFExportedSymbol table entry, not the loader header. The
+  parser keeps the raw big-endian u32 decode internally and exposes
+  the three signed fields as i32. Field order: mainSection SInt32,
+  mainOffset u32, initSection SInt32, initOffset u32, termSection
+  SInt32, termOffset u32, importedLibraryCount u32,
+  totalImportedSymbolCount u32, relocSectionCount u32,
+  relocInstrOffset u32, loaderStringsOffset u32, exportHashOffset
+  u32, exportHashTablePower u32, exportedSymbolCount u32.
 - Export hash @ loader.containerOffset + exportHashOffset: 2^power u32 slots
   (symbolCount = w>>18, firstKeyIndex = w & 0x3FFFF); then
   exportedSymbolCount u32 keys (nameLength = w>>16, hashValue = w&0xFFFF);
@@ -48,8 +50,11 @@ the G4 capture from `SampleOMSApp.mcp` target "Sample OMS PPC".
   offset (decompress kind-2 via the packed-data scheme: opcode = byte>>5,
   value = byte&0x1F (0 => 7-bit varint), ops 0=ZeroSkip 1=BlockLiteral
   2=Repeat 3=RepeatBlock 4=RepeatZero); identifiable only when word0 != 0
-  and both words are 4-byte aligned (a zero word0 = relocation-materialized,
-  per rule 7; no code-range test applies — defaultAddress is 0).
+  and both words are 4-byte aligned. Raw zero/stub bytes at the special-main
+  location are **pre-relocation contents**: they do NOT establish that the
+  vector is absent from the PEF representation — CFM relocation materializes
+  pointer values at preparation (load) time. No code-range test applies
+  (defaultAddress is 0).
 
 ## Validation rules
 
@@ -70,17 +75,19 @@ the G4 capture from `SampleOMSApp.mcp` target "Sample OMS PPC".
    the loader container (nameOffset is relative to loaderStringsOffset:
    name at loader + loaderStringsOffset + (classAndName & 0xFFFFFF);
    verified on the fixtures: production's 'main' resolves to "main").
-6. mainSection == 0xFFFFFFFF (no main) is structurally legal; reported.
+6. mainSection == -1 (raw 0xFFFFFFFF, no main) is structurally legal; reported.
 7. Special-main (mechanical): if mainSection != 0xFFFFFFFF: report the
    pair (mainSection, mainOffset) and the section kind; when the section
    is non-code (kinds 1/2/4/...), attempt the transition-vector decode at
    the section content + mainOffset (kind 2 = decompressed via the
    packed-data scheme below; kinds 1/4 = raw container bytes); when
    kind 0, the main address = code + mainOffset (alignment-checked).
-   A zero target (E-series: unpacked = 8 zero bytes) reports "not
-   identifiable (zero vector — relocation-materialized)" plus the
-   relocation-stream presence (relocSectionCount/relocInstrOffset) and
-   the raw target bytes. No "code target range" message is emitted:
+   A zero target (E-series: unpacked = 8 zero bytes) reports the raw
+   target bytes as **pre-relocation contents** — zero/stub bytes do NOT
+   establish that the vector is absent from the PEF representation, since
+   CFM relocation materializes pointer values at preparation time — plus
+   the relocation-stream presence (relocSectionCount/relocInstrOffset).
+   No "code target range" message is emitted:
    with container defaultAddress = 0 the zero word0 sits inside every
    code range, so a range check would be meaningless. Flat bases are
    assigned at load; the report states section + offset + raw words.
@@ -99,16 +106,18 @@ Output must not exceed unpackedLength (overrun = report, not
 INVALID); stream exhaustion / reserved opcode (5-7) = report, not
 INVALID — rule 7's decode is informational. Pinned fixture
 expectations: E1/E2a/E2b data (packed 1 byte `0x08`) unpack to 8
-zero bytes (the vector is relocation-materialized, not stored);
+zero bytes — pre-relocation stub contents (a vector, if any, is
+materialized by CFM relocation, not stored as such);
 TM data stream (0x5E0, 75 B) decodes through ops 0/1/2/4 until a
 reserved opcode 5 at stream byte 16 — reported as "not decodable
 with ops 0-4", still PASS (the TM's vector [0x1000016C,
-0x10000470] is loader-materialized, not in the container);
+0x10000470] would be materialized by relocation at preparation time);
 production data stream = the known-undecodable old-PEF stream —
 same report-only treatment. None of the six fixtures stores a
-vector in the container; the report emits the raw target bytes +
-the relocation-stream presence (relocSectionCount, relocInstrOffset,
-raw stream bytes) for each.
+vector's pointer values in the container (their special-main target
+bytes are pre-relocation contents); the report emits the raw target
+bytes + the relocation-stream presence (relocSectionCount,
+relocInstrOffset, raw stream bytes) for each.
 
 ## Deliverables
 

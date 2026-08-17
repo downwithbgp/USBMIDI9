@@ -79,10 +79,11 @@ fn tm_loader_fields_and_materialized_vector() {
     let c = Container::parse(&fixture("tm_ppcc1.pef")).unwrap();
     assert_eq!(c.loader.main_section, 1);
     assert_eq!(c.loader.main_offset, 0x3c);
-    assert_eq!(c.loader.init_section, 0xffff_ffff);
-    assert_eq!(c.loader.term_section, 0xffff_ffff);
+    assert_eq!(c.loader.init_section, -1);
+    assert_eq!(c.loader.term_section, -1);
     let r = validate::validate(&c);
-    // The TM stores no vector in the container (loader-materialized).
+    // The TM's special-main target bytes are pre-relocation contents; a
+    // vector is materialized by relocation, not stored in the container.
     assert!(r.vector.is_none(), "TM vector must not be container-stored");
     let t = r.main_target.clone().expect("TM must have a special main");
     assert_eq!((t.section_index, t.offset), (1, 0x3c));
@@ -104,7 +105,7 @@ fn omslib601_loader_fields() {
 #[test]
 fn production_loader_no_main_and_exports() {
     let c = Container::parse(&fixture("production_usbmidi9.pef")).unwrap();
-    assert_eq!(c.loader.main_section, 0xffff_ffff);
+    assert_eq!(c.loader.main_section, -1);
     assert_eq!(c.loader.imported_library_count, 3);
     assert_eq!(c.loader.total_imported_symbol_count, 13);
     assert_eq!(c.loader.exported_symbol_count, 1);
@@ -122,7 +123,7 @@ fn production_loader_no_main_and_exports() {
 #[test]
 fn e_series_loader_fields() {
     for (name, main_section, main_offset) in [
-        ("e1_oms.pef", 0xffff_ffff, 0u32),
+        ("e1_oms.pef", -1, 0u32),
         ("e2a_oms.pef", 1, 0),
         ("e2b_oms.pef", 1, 0),
     ] {
@@ -131,6 +132,31 @@ fn e_series_loader_fields() {
         assert_eq!(c.loader.main_offset, main_offset, "{}", name);
         assert_eq!(c.loader.exported_symbol_count, 1, "{}", name);
     }
+}
+
+#[test]
+fn loader_section_fields_decode_as_signed_negative_one() {
+    // Regression: mainSection/initSection/termSection are SInt32. A raw
+    // 0xFFFFFFFF in the header must surface as i32 -1, not wrap.
+    let mut data = fixture("tm_ppcc1.pef");
+    // TM loader container @0x80; mainSection is its first 4 bytes.
+    data[0x80..0x84].copy_from_slice(&0xffff_ffffu32.to_be_bytes());
+    let c = Container::parse(&data).unwrap();
+    assert_eq!(c.loader.main_section, -1);
+    assert_eq!(c.loader.init_section, -1);
+    assert_eq!(c.loader.term_section, -1);
+    // A negative-but-not-(-1) mainSection is out of range (not a panic).
+    let mut data = fixture("tm_ppcc1.pef");
+    data[0x80..0x84].copy_from_slice(&(-2i32).to_be_bytes());
+    let c = Container::parse(&data).unwrap();
+    let r = validate::validate(&c);
+    assert!(
+        r.errors
+            .iter()
+            .any(|e| e.contains("mainSection -2 out of range")),
+        "negative non -1 mainSection must be out-of-range, got: {:?}",
+        r.errors
+    );
 }
 
 #[test]

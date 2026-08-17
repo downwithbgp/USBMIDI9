@@ -29,11 +29,14 @@ note: main target content not decodable: reserved packed-data opcode 5 at stream
 The special main = (section 1 = PackedData, offset 0x3C). The container's
 data stream decodes through packed-data ops 0/1/2/4 and hits a reserved
 opcode 5 at stream byte 16 (CW stream semantics beyond ops 0-4 unresolved).
-**The transition vector [0x1000016C, 0x10000470] is NOT stored in the
-container — it is loader-materialized** (as in every fixture here). The
-loader-info layout is the 14×u32 form (byte-derived: u32 mainSection=1,
-u32 mainOffset=0x3C, init/term = −1; the official PEF spec's SInt16 layout
-would misread this working fragment as mainSection=0/initSection=1).
+The special-main target bytes are **pre-relocation contents** — a zero/stub
+there does NOT establish the vector is absent from the PEF representation,
+since CFM relocation materializes the vector's pointer values at preparation
+time. The loader-info layout is the 14×u32 (fixed 56-byte) form: the three
+section fields (mainSection/initSection/termSection) are SInt32 (TM:
+mainSection=1, mainOffset=0x3C, init/term = −1), the rest are UInt32; there
+is no SInt16 loader-header layout (the SInt16 sectionIndex belongs to the
+exported-symbol table).
 
 ### omslib_ppcc601.pef (authentic OMSLib PPCC 601)
 ```
@@ -41,7 +44,7 @@ sections: Code @0x110 len=204; PackedData @0x1e0 len=1 unpacked=12; Loader @0x80
 loader: mainSection=1 mainOffset=0x4 init=-1 term=-1 libs=1 imports=1
         relocInstrOffset=0x60 stringsOffset=0x64 exportHashOffset=0x84 power=1 exports=0
 special main: section 1 (PackedData) + 0x4
-main target bytes: 00 00 00 00 00 00 00 00  (zero vector — relocation-materialized)
+main target bytes: 00 00 00 00 00 00 00 00  (pre-relocation stub; vector materialized by relocation)
 ```
 
 ### production_usbmidi9.pef (USBMIDI9 production, recovered from the Ghidra project)
@@ -72,7 +75,7 @@ note: loader mainSection = -1 (no main symbol)
 sections: Code @0xf0 len=8; PackedData @0x100 len=1 unpacked=8; Loader @0x80 len=98
 loader: mainSection=1 mainOffset=0 init=-1 term=-1 exports=1
 special main: section 1 (PackedData) + 0x0
-main target bytes: 00 00 00 00 00 00 00 00  (zero vector — relocation-materialized)
+main target bytes: 00 00 00 00 00 00 00 00  (pre-relocation stub; vector materialized by relocation)
 ```
 
 ### e2b_oms.pef (INVALID)
@@ -91,17 +94,22 @@ evidence about OMS entry/init/dispose behavior.
 
 1. All six artifacts parse as PEF v1 containers (magic `Joy!peffpwpc`,
    containerVersion 1) with 3 sections (Code / PackedData / Loader).
-2. The CW-built loader info is the 14×u32 layout (56 bytes) — verified
-   mechanically from the authentic TM and 601 bytes; the official spec's
-   SInt16 layout is not what CodeWarrior emits.
+2. The CW-built loader info is the fixed 56-byte / 14-field layout
+   (verified mechanically from the authentic TM and 601 bytes):
+   mainSection/initSection/termSection are SInt32 (−1 = none), the rest
+   are UInt32. There is no SInt16 loader-header layout; the SInt16
+   sectionIndex belongs to the exported-symbol table entry.
 3. All section containerOffsets are 16-aligned except E2b's code (0xE2);
    all sections carry alignment byte 4 (2^4 = 16).
-4. **No fixture stores a transition vector in the container.** The special
-   main targets (TM 1+0x3C, 601 1+0x4, E2a/E2b 1+0x0) all land in the
-   PackedData section whose container content is zeros/stub — the vectors
-   are materialized by the loader at load time. Container-based vector
-   decoding is therefore not possible; pefcheck reports the raw target
-   bytes + the relocation-stream presence instead.
+4. The special-main target bytes in every fixture are **pre-relocation
+   contents** (zeros/stub): the container does not carry a materialized
+   transition vector's pointer values, and this does NOT establish the
+   vector is absent from the PEF representation — CFM relocation
+   materializes the vector's pointers at preparation (load) time. A
+   container-only decode therefore cannot resolve the vector; pefcheck
+   reports the raw target bytes + the relocation-stream presence.
+   (The relocation simulator, next milestone, runs the program to
+   materialize the pointers.)
 5. The E-series' four-byte relocation stream (`46 00 00 00`) is identical
    to the production's first instructions' shape; the production carries a
    full 16+ byte relocation program.
