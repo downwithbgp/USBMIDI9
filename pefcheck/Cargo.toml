@@ -1,0 +1,11 @@
+[package]
+name = "pefcheck"
+version = "0.1.0"
+edition = "2021"
+description = "Mechanical structural checker for PowerPC PEF containers (USBMIDI9 project)"
+license = "MIT"
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1.11.0"
