@@ -621,21 +621,23 @@ long oms_handle_message(short msg, long par1, long par2)
  * Diagnostic build: define USBMIDI9_OMS_DIAG_MINIMAL_ENTRY in the G4
  * OMS PEF target's preprocessor settings ONLY (never in a shared
  * prefix file — it must not leak into the production build) to replace
- * the entry with a trivial `return 0` for every message — NO
+ * the entry with a trivial call/return diagnostic — NO
  * LinkToOMSGlue, OMSGetCallAddress, NewRoutineDescriptor, USB Manager
  * calls, FindSymbol, notifications, dispatch lookup or RX/TX code.
- * This is the stage-0 diagnostic for the OMS Setup type-2/type-3
- * crash gate (see docs/g4-handoff.md): returning 0 is safe for every
- * driver message (OMS spec: omdvInit returns OMSErr; a driver that
- * provides no devices/ports is legal). It is a TEMPORARY diagnostic —
- * the production entry must remain oms_handle_message. */
+ * This is the call/return diagnostic for the OMS Setup crash gate (see
+ * docs/g4-handoff.md): omdvInit (0) returns -1 (a non-zero OMSErr, so
+ * OMS does NOT proceed to use the driver — the intent is that the OMS
+ * Setup Search consumes the driver's mainAddr, calls it, and immediately
+ * gets a failure return, exercising the entry-call path without any
+ * device enumeration); every other message including omdvDispose (1)
+ * returns 0. It is a TEMPORARY diagnostic — the production entry must
+ * remain oms_handle_message. */
 #ifdef USBMIDI9_OMS_DIAG_MINIMAL_ENTRY
 OMSCALLBACK(long) main(short msg, long par1, long par2)
 {
-    (void)msg;
     (void)par1;
     (void)par2;
-    return 0L;
+    return (msg == omdvInit) ? -1L : 0L;
 }
 #else
 OMSCALLBACK(long) main(short msg, long par1, long par2)
