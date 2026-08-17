@@ -415,30 +415,26 @@ byte gate (`7c 08 02 a6`) checked BEFORE install.
 
 0. **PEF link gate — PASS (2026-08-16)**: OMS PEF target builds and
    links: 0 errors, 43 warnings. Membership per the manifest above.
-1. **Resource-assembly gate — CURRENT (outer-container PASS
-   2026-08-16)**: Rez source PASS, resource-only target config PASS
-   (Linker: None, 0 errors), and the **MacOS Merge / Project Type =
-   Resource File** container mechanism PASS (real file with `'OMdi'`
-   128, `'SICN'` 128, `'vers'` 1 verified in ResEdit). Remaining —
-   the packaging change: add `'PPCC'` 1 via Rez `read` from the
-   Target-A PEF (`oms/ppcc.r` does the read; `::USBMIDI9_OMS` resolves
-   to `USBMIDI9:USBMIDI9_OMS`), remove the stale `oms/omdv.r` member
-   and the untracked OMdvData/omdvdata artifacts, ensure MacOS Merge
-   does not skip `PPCC`, then ResEdit must show **exactly** `OMdi`
-   128 / `PPCC` 1 / `SICN` 128 / `vers` 1 (and **no** `OMdv`), and
-   `OMdi` 128 must byte-inspect as `7F 10 00 00 00 00 00 01 00 01 00
-   00 00 00 00 00` (the typed-template build failed this with
-   `... 40 00 ...` at +6 — OMS -192). Do not
-   install into System Folder:OMS Folder until that inspection passes.
-   Then continue with the runtime gates:
+1. **Resource-assembly gate — PASS (2026-08-16/17, superseded by the
+   PPCC entry gate above)**: Rez source PASS, resource-only target
+   config PASS (Linker: None, 0 errors), MacOS Merge / Project Type =
+   Resource File container PASS, `'PPCC'` 1 added via Rez `read`,
+   stale OMdvData artifacts removed, and the ResEdit byte gates PASSED
+   on the real G4: exactly `OMdi` 128 / `PPCC` 1 / `SICN` 128 /
+   `vers` 1 (no `OMdv`), `OMdi` 128 = `7F 10 00 00 00 00 00 01 00 01
+   00 00 00 00 00 00` (the typed-template build failed this with
+   `... 40 00 ...` at +6 — OMS -192), `PPCC` 1 = 9501 bytes beginning
+   `Joy!peffpwpc`. The driver was installed and OMS -192 is gone.
+   Continue with the runtime gates (entry gate first, above):
 2. **Probe regression**: the existing Probe still enumerates and receives
    Keystation packets (nothing broke — the Probe's 0x0001 minimum accepts
    the v0x0002 driver).
-3. **OMS driver loads**: install `USBMIDI9 OMS Driver` in the OMS Folder;
-   open OMS Setup → File → New Studio Setup → the interface search finds
-   "USBMIDI9 Port 1" (the SICN icon should appear). The driver must load
-   with or without the Keystation attached (omdvInit no longer fails on a
-   missing device).
+3. **OMS driver loads — PARTIAL (superseded by the PPCC entry gate)**:
+   install `USBMIDI9 OMS Driver` in the OMS Folder; open OMS Setup →
+   File → New Studio Setup → the interface search. The driver now
+   LOADS (no -192), but OMS Setup crashes with type-2/type-3 on the
+   first native-PPC entry call — see the PPCC entry gate above and
+   docs/oms-ppcc-entry-crash.md.
 4. **OMS receives MIDI**: in OMS Setup, create the studio setup with the
    Keystation connected to "USBMIDI9 Port 1"; open an OMS application
    (ReBirth RB-338 is the acceptance target) and play the keyboard. If

@@ -618,9 +618,9 @@ long oms_handle_message(short msg, long par1, long par2)
  * 'PPCC' fragment's main symbol with the omdv* messages. Exported from
  * the PEF as `main` (codewarrior/USBMIDI9_OMS.exp).
  *
- * Diagnostic build: define USBMIDI9_OMS_DIAG_MINIMAL_ENTRY (project
- * preprocessor setting on the G4 PEF target, or a prefix-file
- * #define) to replace
+ * Diagnostic build: define USBMIDI9_OMS_DIAG_MINIMAL_ENTRY in the G4
+ * OMS PEF target's preprocessor settings ONLY (never in a shared
+ * prefix file — it must not leak into the production build) to replace
  * the entry with a trivial `return 0` for every message — NO
  * LinkToOMSGlue, OMSGetCallAddress, NewRoutineDescriptor, USB Manager
  * calls, FindSymbol, notifications, dispatch lookup or RX/TX code.
