@@ -112,8 +112,14 @@ dump the `main` symbol bytes — the scripts used for this analysis are
 in /tmp/omsdiag/ghidra/; or compare the PPCC 1 bytes with the old
 PEF's main-symbol offset). If the main symbol is STILL a transition
 vector (expected — same linker behavior), the crash should persist
-even with the trivial entry; that confirms the export-form problem and
-rules out our init code.
+even with the trivial entry; that points at the export-form problem
+and rules out our init code. **Alternate outcome to keep in mind:** if
+OMS dereferences `*par1` (an `OMSFile*`) after a successful omdvInit
+— the authentic TM writes a word to `*par1` before returning 0, while
+the minimal entry leaves it untouched — the crash could persist
+independently of the vector issue; in that case the minimal entry must
+be extended to write a valid `OMSFile*` (or a null-safe dummy) into
+`par1` before returning 0.
 
 **E2 — fix candidate (plain-code export):** with the same minimal
 entry, change the export form until the main symbol bytes start

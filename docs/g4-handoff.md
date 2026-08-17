@@ -406,8 +406,9 @@ native-PPC entry call crashes. Root-cause analysis (evidence in
 docs/oms-ppcc-entry-crash.md): the authentic OMS Time Manager PPCC's
 `.main` export points at plain PPC code, while our PEF's `main` symbol
 points at a **transition vector** (`[code,TOC]` data object) in the
-loader info — executing the vector as code reproduces the observed
-type-2/type-3. Next G4 gate = the minimal-entry diagnostic
+loader info — executing the vector as code likely reproduces the
+observed type-2/type-3 (primary hypothesis; see the doc for the
+alternate *par1 outcome and the not-yet-proven caveat). Next G4 gate = the minimal-entry diagnostic
 (`USBMIDI9_OMS_DIAG_MINIMAL_ENTRY` in oms/oms_driver.c) + the
 plain-code-export fix hunt (PPC PEF panel / .exp), with the main-symbol
 byte gate (`7c 08 02 a6`) checked BEFORE install.

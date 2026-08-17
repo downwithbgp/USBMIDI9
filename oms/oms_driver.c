@@ -619,7 +619,8 @@ long oms_handle_message(short msg, long par1, long par2)
  * the PEF as `main` (codewarrior/USBMIDI9_OMS.exp).
  *
  * Diagnostic build: define USBMIDI9_OMS_DIAG_MINIMAL_ENTRY (project
- * preprocessor setting on the G4, or a prefix-file #define) to replace
+ * preprocessor setting on the G4 PEF target, or a prefix-file
+ * #define) to replace
  * the entry with a trivial `return 0` for every message — NO
  * LinkToOMSGlue, OMSGetCallAddress, NewRoutineDescriptor, USB Manager
  * calls, FindSymbol, notifications, dispatch lookup or RX/TX code.
