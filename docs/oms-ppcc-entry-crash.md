@@ -105,8 +105,10 @@ as a Mixed Mode UPP (RoutineDescriptor built from mainAddr). The
   crash is in the entry-call path with a `mainSection=-1` main
   representation.
 
-The fix direction: **make the PEF's main symbol resolve directly to
-the executable code** (see E2).
+The fix direction: **give the PEF a valid special main symbol** —
+first as E2a (loader-header `mainSection` → 1, keeping the existing
+transition vector, mirroring the TM), then as the direct-code E2 if
+needed.
 
 ## E. Smallest next G4 build
 
@@ -133,45 +135,56 @@ independently of the vector issue; in that case the minimal entry must
 be extended to write a valid `OMSFile*` (or a null-safe dummy) into
 `par1` before returning 0.
 
-**E2 — prepared (2026-08-17, host-side, not yet run on the G4):**
-controlled loader-metadata patch of the preserved 257-byte E1 PEF —
-NO rebuild, NO linker change. E2 = byte copy of E1 with exactly 6
-bytes changed so the main symbol resolves directly to the executable
-code instead of the vector:
+**E2a — primary A/B (prepared 2026-08-17, host-side, not yet run on
+the G4):** controlled loader-header patch of the preserved 257-byte
+E1 PEF — NO rebuild, NO linker change, export table untouched. Per
+Apple's PEF docs the fragment main symbol is a SPECIAL symbol
+separate from the exported-symbol list, and `mainSection == -1` means
+the fragment has no main symbol — so E1's exported `main` did NOT
+establish a fragment main for CFM's mainAddr. E2a = byte copy of E1
+with exactly 4 bytes changed:
 
-| offset | E1 | E2 | meaning |
+| offset | E1 | E2a | meaning |
 |---|---|---|---|
-| 0x080–0x083 | `FF FF FF FF` | `00 00 00 00` | loader-info `mainSection`: -1 (no main) → 0 (Code) |
-| 0x0D8 | `02` | `00` | `'main'` export entry class: 2 (TOC/vector) → 0 (code) |
-| 0x0E1 | `01` | `00` | `'main'` export entry sectionIndex: 1 (PackedData) → 0 (Code) |
+| 0x080–0x083 | `FF FF FF FF` | `00 00 00 01` | loader-info `mainSection`: -1 (no main) → 1 (PackedData section) |
 
-`mainOffset` (0x84) and the export `symbolValue` (0xDC) stay 0 — the
-entry now points at `Code section + 0`. No relocation metadata is
-affected (the patched fields are plain section indices/class, not
-relocated offsets; the entry's nameOffset=0 and value=0 are unchanged,
-so the loader-info relocation stream and the export hash (slot 0,
-key `main` len 4 hash 0x250) are untouched). The vector bytes remain
-in the data section as inert data, referenced by nothing.
+`mainOffset` (0x84) stays 0 → **CFM special main resolves to
+section 1 offset 0 = the EXISTING transition vector**
+`[0x10000000, 0x10000010]` (section 1's relocated content, confirmed:
+`10 00 00 00 10 00 00 10` at 0x10000010; code at 0x10000000 =
+`38 60 00 00 4e 80 00 20` = `li r3,0; blr`). The exported `main`
+entry (class 2, value 0, section 1), its hash slot/key (len 4,
+hash 0x250), the string table, and ALL other bytes are unchanged —
+byte-level diff vs E1 = exactly 4 bytes at 0x80–0x83.
 
-Ghidra proof (same PEF loader resolution CFM uses): E2 imports with
-`main @ 0x10000000` AND `.main @ 0x10000000` (E1: `main @ 0x10000010`
-= the vector), and the bytes at 0x10000000 =
-`38 60 00 00 4e 80 00 20` = **`li r3,0; blr`** — the direct
-executable entry. E2 = 257 bytes,
-sha256 `54fec171311f39d0fafb8464602e3877f5a7933c89d74d9772532d6099bb8647`
-(E1 sha256 `9b5f6182...` preserved untouched).
+Ghidra PEF-loader verification (distinguishing the two mechanisms):
+- **CFM special main (loader fields):** `.main @ 0x10000010` — new
+  in E2a (absent in E1, whose mainSection was -1), = section 1 + 0 =
+  the vector.
+- **Exported symbol named `main`:** `main @ 0x10000010` — present in
+  E1 and E2a identically (class 2, value 0, section 1 → the vector).
+- (Ghidra's PefDebugAnalyzer additionally labels the vector's
+  dereferenced code target `main`/`entry @ 0x10000000`, then errors
+  reading past the 8-byte code block at 0x10000008 — benign
+  import-time analyzer noise; import succeeded.)
 
-**Interpretation (per the E1/E2 A/B):** E2 succeeds while E1 crashes
-⇒ the `mainSection=-1` + class-2 export main representation is the
-root cause; OMS expects a main symbol that resolves to a direct
-executable entry (note: the TM's own mainAddr is a vector via VALID
-loader-info main fields — so a valid `mainSection` is at least part
-of the contract). E2 also crashes ⇒ the main-symbol representation is
-not sufficient to explain the crash; investigate the OMS entry
-ABI/resource metadata next.
+E2a = 257 bytes, sha256
+`fa86b26d440fbefe4875b255a73df94985304e587a27f71e46b7396700b99907`
+(E1 sha256 `9b5f6182...` and the direct-code E2 sha256
+`54fec171...` both preserved untouched).
 
-**E2 G4 packaging gates:** (1) replace the preserved E1 file with the
-E2 bytes (`sha256 54fec171...`, 257 bytes) at
+**Runtime interpretation (per the E1/E2a A/B):** E2a succeeds while
+E1 crashes ⇒ the missing PEF special main symbol is the root cause;
+the exported `main` was insufficient. Transition vectors are
+exonerated (matches the authentic TM, whose special main =
+mainSection=1/mainOffset=0x3c → its vector, works on the G4).
+E2a still crashes ⇒ a valid special main pointing at our vector is
+insufficient; then test the already-prepared direct-code **E2**
+(mainSection → Code, export class/section → code) or investigate the
+OMS entry ABI/resource metadata next.
+
+**E2a G4 packaging gates:** (1) replace the preserved E1 file with
+the E2a bytes (`sha256 fa86b26d...`, 257 bytes) at
 `USBMIDI9:USBMIDI9_OMS`; (2) repackage with the SAME MacOS Merge /
 Resource File target (Rez `read 'PPCC' (1) "::USBMIDI9_OMS"`);
 (3) ResEdit BEFORE install: OMdi 128 =
