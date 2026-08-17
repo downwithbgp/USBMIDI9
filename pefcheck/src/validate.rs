@@ -176,12 +176,6 @@ pub fn validate(c: &Container) -> Report {
                                 word0: w0,
                                 word1: w1,
                             });
-                            if w0 % 4 != 0 {
-                                r.errors.push(format!(
-                                    "transition-vector code target 0x{:x} not 4-byte aligned",
-                                    w0
-                                ));
-                            }
                         } else {
                             r.notes.push(format!(
                                 "target bytes {:02x?} = not an identifiable transition vector \

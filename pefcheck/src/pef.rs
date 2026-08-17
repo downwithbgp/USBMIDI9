@@ -326,8 +326,9 @@ pub fn unpack_packed(data: &[u8], out_len: usize) -> Result<Vec<u8>, String> {
                 pos = p;
                 let (gblock, p) = take(data, pos, gap, "RepeatBlock")?;
                 pos = p;
-                let n = (blen + gap)
-                    .checked_mul(count)
+                let n = blen
+                    .checked_add(gap)
+                    .and_then(|v| v.checked_mul(count))
                     .and_then(|v| v.checked_add(blen))
                     .ok_or_else(|| "RepeatBlock size overflow".to_string())?;
                 grow(&out, out_len, n, "RepeatBlock")?;
@@ -343,7 +344,11 @@ pub fn unpack_packed(data: &[u8], out_len: usize) -> Result<Vec<u8>, String> {
                 let (count, p) = varint(data, pos)?;
                 pos = p;
                 let n = value
-                    .checked_mul(count + 1)
+                    .checked_mul(
+                        count
+                            .checked_add(1)
+                            .ok_or_else(|| "RepeatZero count overflow".to_string())?,
+                    )
                     .ok_or_else(|| "RepeatZero size overflow".to_string())?;
                 grow(&out, out_len, n, "RepeatZero")?;
                 out.resize(out.len() + n, 0);
