@@ -22,7 +22,7 @@ SAN     := build-san
 
 CORE_SRCS := core/packets.c core/descriptors.c core/ports.c core/midi_stream.c
 RING_SRCS := classic/ring.c
-TEST_SRCS := tests/test_main.c tests/test_packets.c tests/test_descriptors.c tests/test_ring.c tests/test_machine.c tests/test_probe.c tests/test_midi_stream.c tests/test_oms_driver.c
+TEST_SRCS := tests/test_main.c tests/test_packets.c tests/test_descriptors.c tests/test_ring.c tests/test_machine.c tests/test_probe.c tests/test_midi_stream.c tests/test_oms_driver.c tests/test_omdi_resource.c
 
 CORE_OBJS := $(CORE_SRCS:%.c=$(BUILD)/%.o)
 RING_OBJS := $(RING_SRCS:%.c=$(BUILD)/%.o)
@@ -93,6 +93,18 @@ $(BUILD)/tests/test_oms_driver.o: $(OMS_DEPS)
 $(SAN)/tests/test_oms_driver.o: $(OMS_DEPS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CLASSIC_CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
+
+# The OMdi resource test parses oms/oms_driver.r + oms/ppcc.r at
+# runtime, so it must rebuild when either resource source changes.
+OMDI_DEPS := tests/test_omdi_resource.c oms/oms_driver.r oms/ppcc.r
+
+$(BUILD)/tests/test_omdi_resource.o: $(OMDI_DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(SAN)/tests/test_omdi_resource.o: $(OMDI_DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer -c -o $@ $<
 
 test: all
 	$(BUILD)/test_usbmidi9

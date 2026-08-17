@@ -202,12 +202,21 @@ in CodeWarrior's Rez settings). Nothing standard is hand-declared:
   `"..."` strings and missing inner braces fail with `Expected '{'`;
 - `verUS` region code — authentic `Script.r` (via `IntlResources.r` via
   `Types.r`).
-`'OMdi'` has no Apple template (Opcode's own resource): its Rez type is
-declared in the file with the exact `OMSDriverParams` layout
-(short id + 2 × OMSBool + 2 × short + 2 × byte + 6 reserved bytes = 16
-bytes, no padding). If Rez complains about `Types.r` not found, add the
-Universal Interfaces `RIncludes` folder to the Rez search path (same
-folder that provides the C headers' `CIncludes`).
+`'OMdi'` has no Apple template (Opcode's own resource) and is **not**
+declared as a typed Rez template: the real G4 build proved Rez packs
+`boolean` fields as **bits**, not as the one-byte `OMSBool` members of
+`OMSDriverParams`. The typed template emitted
+`7F 10 00 00 00 00 40 00 4C 0C 0C ...` — the 0x40 at byte 6 made the
+OMS 2.3.8 loader read codeResID = 0x4000, `Get1Resource('PPCC',
+0x4000)` returned NULL, and the driver failed to load with OMS error
+**-192**. The resource is written as raw data instead: `data 'OMdi'
+(128)` with the exact 16-byte hex string — the canonical Rez `data`
+form, the same syntax Apple's own `USBClassDriverIcons.r` (Mac OS USB
+DDK 1.4.1) uses. The host test `tests/test_omdi_resource.c` pins the
+payload bytes and forbids the typed template from returning. If Rez
+complains about `Types.r` not found, add the Universal Interfaces
+`RIncludes` folder to the Rez search path (same folder that provides
+the C headers' `CIncludes`).
 
 **Target gate (2026-08-16, real G4):** a resource-only target containing
 `oms/oms_driver.r`, configured with **Linker: None**, Makes with **0
@@ -218,6 +227,25 @@ with Linker: None there is no link step to assemble an output file (CW's
 Rez is a plug-in compiler whose output goes into the project build — it
 cannot write an external file; CW Pro 4 "Targeting Mac OS", ch. 8), so
 the final driver file is produced by the documented mechanism below.
+
+**OMdi byte gate — FAIL, then FIX (real G4, ResEdit byte inspection):**
+the installed `'OMdi'` 128 read `7F 10 00 00 00 00 40 00 4C 0C 0C ...`
+— the typed Rez template packed the `boolean` fields as bits, so the
+word at +6 (`xxportNumB`, the 'PPCC' codeResID) became `0x4000` instead
+of `1` and OMS -192 ("The OMS driver ... could not be loaded") was
+exactly expected: `Get1Resource('PPCC', 0x4000)` returned NULL. Fixed
+by replacing the typed template with a raw `data 'OMdi' (128)`
+resource. The required logical 16 bytes are:
+`7F 10 00 00 00 00 00 01 00 01 00 00 00 00 00 00`
+(id 0x7F10, xxisSmart 0, hasMenuOrWindows 0, xxportNumM 0,
+xxportNumB 1, flags 0, driverCompatibilityLevel 1, reservedFlags[6] 0).
+`tests/test_omdi_resource.c` (host, `make test`) pins these bytes and
+bans the typed template. The 4C 0C ... tail showed the same
+non-byte-exact emission in the trailing fields; no mechanism was
+pursued — raw data removes the ambiguity. Next G4 gate: rebuild the
+resource target and byte-inspect `OMdi` 128 in ResEdit **before
+installation**; do not runtime-test until the bytes match AND `PPCC` 1
+still reads 9501 bytes starting `Joy!peffpwpc`.
 
 ### Assembling the OMS driver file
 
@@ -347,18 +375,24 @@ ResEdit.
    - `PPCC` 1
    - `SICN` 128
    - `vers` 1
-   and **no** `OMdv`. Optionally double-click `PPCC` 1: the data must
-   start `4A 6F 79 21 70 65 66 66` = "Joy!peffpwpc" — **no** length
-   prefix — total size = the PEF size (9501 bytes for the 2026-08-16
-   build).
+   and **no** `OMdv`. Double-click `OMdi` 128 and verify the **exact
+   16 bytes**: `7F 10 00 00 00 00 00 01 00 01 00 00 00 00 00 00` — the
+   earlier typed-template build emitted `... 40 00 ...` at bytes 6-7
+   (codeResID 0x4000) and OMS failed with -192, so this byte check is
+   **required before install**. Optionally double-click `PPCC` 1: the
+   data must start `4A 6F 79 21 70 65 66 66` = "Joy!peffpwpc" — **no**
+   length prefix — total size = the PEF size (9501 bytes for the
+   2026-08-16 build).
 7. **Install only after step 6 passes:** copy the file into
    **System Folder:OMS Folder**, then run the runtime gates (probe
    regression, OMS driver loads, OMS receives MIDI).
 
 If OMS 2.3.8 does not load the driver, first check: file type/creator,
-resource IDs (128/1), the `'OMdi'` id/xxportNumB bytes, and the PPCC 1
-data shape (`4A 6F 79 21` = "Joy!peffpwpc" at byte 0, no length
-prefix) against the authentic OMS Time Manager PPCC 1. The
+resource IDs (128/1), the `'OMdi'` 128 exact bytes (`7F 10 00 00 00 00
+00 01 00 01 00 00 00 00 00 00` — the word at +6 must be `00 01`, the
+'PPCC' codeResID), and the PPCC 1 data shape (`4A 6F 79 21` =
+"Joy!peffpwpc" at byte 0, no length prefix) against the authentic OMS
+Time Manager PPCC 1. The
 'OMdi'/'PPCC' loading mechanism itself is verified by disassembly of
 the OMS 2.3.8 library (loadCode pref=2 = Get1Resource('PPCC',
 xxportNumB), then materialize + GetDiskFragment).
@@ -377,7 +411,10 @@ xxportNumB), then materialize + GetDiskFragment).
    to `USBMIDI9:USBMIDI9_OMS`), remove the stale `oms/omdv.r` member
    and the untracked OMdvData/omdvdata artifacts, ensure MacOS Merge
    does not skip `PPCC`, then ResEdit must show **exactly** `OMdi`
-   128 / `PPCC` 1 / `SICN` 128 / `vers` 1 (and **no** `OMdv`). Do not
+   128 / `PPCC` 1 / `SICN` 128 / `vers` 1 (and **no** `OMdv`), and
+   `OMdi` 128 must byte-inspect as `7F 10 00 00 00 00 00 01 00 01 00
+   00 00 00 00 00` (the typed-template build failed this with
+   `... 40 00 ...` at +6 — OMS -192). Do not
    install into System Folder:OMS Folder until that inspection passes.
    Then continue with the runtime gates:
 2. **Probe regression**: the existing Probe still enumerates and receives
