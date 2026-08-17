@@ -262,17 +262,34 @@ long OMSGetCallAddress(short callNum)
 static UniversalProcPtr gLastCallProc;
 static ProcInfoType gLastProcInfo;
 static int gCallUniversalCalls;
+static int gAdd1Calls;      /* omdvAddDevices add1device dispatches only */
+
+/* Forward declaration (defined below) so the CallUniversalProc mock can
+ * dispatch the omdvAddDevices add1device callback through the Mixed
+ * Mode path. */
+static OMSDeviceH mock_add1(OMSDevice *device, short devSize);
 
 long CallUniversalProc(UniversalProcPtr theProcPtr, ProcInfoType procInfo, ...)
 {
     OMSPacket *pkt;
     short destRefNum;
+    OMSDevice *device;
+    short devSize;
     va_list ap;
 
     gCallUniversalCalls++;
     gLastCallProc = theProcPtr;
     gLastProcInfo = procInfo;
     va_start(ap, procInfo);
+    if (procInfo == uppOMSDvrAdd1DevProc1Info) {
+        /* omdvAddDevices add1device callback (OMSDrvUPPs.h):
+         * pascal OMSDeviceH (OMSDevice *, short devSize). */
+        device = va_arg(ap, OMSDevice *);
+        devSize = (short)va_arg(ap, int);   /* default promotion */
+        va_end(ap);
+        gAdd1Calls++;
+        return (long)((OMSDvrAdd1DevProc1)mock_add1)(device, devSize);
+    }
     pkt = va_arg(ap, OMSPacket *);
     destRefNum = (short)va_arg(ap, int);    /* default promotion */
     va_end(ap);
@@ -464,6 +481,7 @@ static void mock_setup(unsigned n)
     gLastCallNum = 0;
     gCallAddrFail = 0;
     gCallUniversalCalls = 0;
+    gAdd1Calls = 0;
     gLastCallProc = NULL;
     gLastProcInfo = 0u;
     gNewRDCalls = 0;
@@ -558,6 +576,13 @@ static void mock_start_midi(unsigned refnum)
 
     CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
     CHECK(oms_driver_main(omdvAddDevices, (long)(Ptr)mock_add1, 0L) == 0L);
+    /* The add1device callback must be invoked through the Mixed Mode
+     * trampoline (CallUniversalProc with uppOMSDvrAdd1DevProc1Info),
+     * NOT by a direct call of the OMSDvrAdd1DevProc1UPP — a direct
+     * call would execute the routine descriptor as PPC code (Address
+     * Error, the production integration crash). */
+    CHECK(gAdd1Calls >= 1);
+    CHECK(gLastProcInfo == uppOMSDvrAdd1DevProc1Info);
     portID.driverID = kUSBMIDI9OMSDriverSignature;
     portID.whichInterface = 1;
     portID.whichPort = 0;
@@ -1148,7 +1173,7 @@ static void test_ppc_rx_delivers_via_wrapper(void)
     mock_queue(0u, pkt4, 4u);
     mock_data_arrives(0);
 
-    CHECK(gCallUniversalCalls == 1);
+    CHECK(gCallUniversalCalls - gAdd1Calls == 1);
     CHECK(gLastCallProc == (UniversalProcPtr)g_oms.rxRoutine);
     CHECK(gLastProcInfo == expected);
     CHECK(gCapturedCount == 1u);
@@ -1178,7 +1203,7 @@ static void test_ppc_rx_resolution_failure_disables(void)
     mock_data_arrives(0);
     CHECK(g_oms.rxMessages == 1ul);         /* drain ran */
     CHECK(gCapturedCount == 0u);            /* delivery disabled */
-    CHECK(gCallUniversalCalls == 0);
+    CHECK(gCallUniversalCalls - gAdd1Calls == 0);
 
     /* Mode 2: no routine address. */
     mock_setup(1u);
@@ -1192,7 +1217,7 @@ static void test_ppc_rx_resolution_failure_disables(void)
     mock_data_arrives(0);
     CHECK(g_oms.rxMessages == 1ul);
     CHECK(gCapturedCount == 0u);
-    CHECK(gCallUniversalCalls == 0);
+    CHECK(gCallUniversalCalls - gAdd1Calls == 0);
 }
 
 /* The routine address is resolved once at init, never per packet or per
@@ -1216,7 +1241,7 @@ static void test_ppc_rx_no_repeat_resolution(void)
     CHECK(gCapturedCount == 4u);
     CHECK(gLinkCalls == 1);
     CHECK(gCallAddrCalls == 1);             /* once total */
-    CHECK(gCallUniversalCalls == 4);        /* once per packet */
+    CHECK(gCallUniversalCalls - gAdd1Calls == 4);   /* once per packet */
 }
 
 static void test_send_hook(void)

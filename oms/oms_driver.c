@@ -403,7 +403,7 @@ static OSErr oms_dispose(void)
  * compat-level-1 add1device callback (Spec: zero the OMSDevice, fill
  * whichOut/ownerDriver/flags/midiChannels/name/icon/driverSpecific,
  * call CallOMSDvrAdd1DevProc1(add1Device, &dev, sizeof(dev))). */
-static OSErr oms_add_devices(OMSDvrAdd1DevProc1 add1Device)
+static OSErr oms_add_devices(OMSDvrAdd1DevProc1UPP add1Device)
 {
     struct USBMIDI9InterfaceInfo info;
     OMSDevice dev;
@@ -457,7 +457,14 @@ static OSErr oms_add_devices(OMSDvrAdd1DevProc1 add1Device)
         oms_pstr_set_n(dev.manuf, "USBMIDI9", OD_MAX_MANUF_LEN);
         oms_pstr_set_n(dev.model, "USB-MIDI Interface", OD_MAX_MODEL_LEN);
 
-        (void)add1Device(&dev, (short)sizeof(dev));
+        /* Invoke the OMS add1device callback through the Mixed Mode
+         * trampoline. On the PPC CFM build add1Device is an
+         * OMSDvrAdd1DevProc1UPP (UniversalProcPtr/routine descriptor):
+         * a DIRECT call would execute the descriptor's bytes as PPC
+         * code → Address Error. The OMS spec (omdvAddDevices) and the
+         * authentic OMSDrvUPPs.h require CallOMSDvrAdd1DevProc1. */
+        (void)CallOMSDvrAdd1DevProc1(add1Device, &dev,
+                                     (short)sizeof(dev));
     }
     return 0;
 }
@@ -578,7 +585,7 @@ long oms_handle_message(short msg, long par1, long par2)
         /* compat level 1: par1 = OMSDvrAdd1DevProc1UPP, par2 =
          * OMSAddDevParams * (portsUsed/baudRatePerPort are serial-port
          * concepts; we have no serial ports). */
-        return (long)oms_add_devices((OMSDvrAdd1DevProc1)par1);
+        return (long)oms_add_devices((OMSDvrAdd1DevProc1UPP)par1);
     case omdvConfigure:
     case omdvGetMenu:                 /* return null: no menus */
     case omdvDoMenu:

@@ -69,6 +69,12 @@ TYPEDEF_OMSPROC(OMSDeviceH, OMSDvrAdd1DevProc0)(OMSDevice *device);
 TYPEDEF_OMSPROC(OMSDeviceH, OMSDvrAdd1DevProc1)(OMSDevice *device,
                                                 short devSize);
 
+/* The authentic OMSDriver.h includes OMSDrvUPPs.h here (it supplies
+ * OMSDvrAdd1DevProc0/1UPP + CallOMSDvrAdd1DevProc0/1; on the PPC CFM
+ * build the callback must be invoked via CallUniversalProc, not by
+ * direct call — see OMSDrvUPPs.h). */
+#include "OMSDrvUPPs.h"
+
 /* OMSSendParams (OMSDriver.h) — the driver fills proc/paramD0/paramD1;
  * OMS fills omsUniqueID. proc is an OMSReadHook2UPP — the
  * RoutineDescriptor the driver builds with NewOMSReadHook2 (OMS.h /
