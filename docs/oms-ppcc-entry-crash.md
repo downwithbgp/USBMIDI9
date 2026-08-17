@@ -414,3 +414,45 @@ SampleCell` CodeWarrior project (`SampleCell.π.rsrc` — check for a
 PPC target), other SDK Examples, the OMS 2.3.8 distribution
 (`/home/vadim/research/oms/oms238*`), and web archives of Opcode OMS
 SDK materials.
+
+### H.1 Research outcome: authentic PPC OMS sample-driver project (2026-08-18)
+
+Research (local SDK + distro + web) result:
+
+**Negative finding — NO authentic Opcode PPC OMS driver sample
+CodeWarrior project exists.** The OMS 2.0 SDK contains exactly two
+CodeWarrior projects; the only driver sample is 68K-only:
+- `Examples/SampleDriver - SampleCell/SampleCell.c` — 68K-only
+  (RememberA0/SetUpA4/RestoreA4, inline 68K register-based send hook,
+  `pascal long main(short msg, long par1, long par2)` returning 0 for
+  every message); its project `SampleCell.π.rsrc` is the CW3
+  single-target resource-fork format (no PPC target by construction).
+- The SDK's 2.0 driver interrupt contract is 68K-register based
+  (`OMSReceivedFromPort` is `#ifndef powerc` with
+  `#pragma parameter OMSReceivedFromPort(__A1, __D0)`; compat-level-0
+  send procs are called "with registers D0 and D1 set up").
+- The SDK's PPC artifacts are client-side only:
+  `Libraries/OMSGluePPC.lib` + `OMSLibPPC.slb` (per
+  `Libraries/README.OMSGlue`).
+- Opcode's shipped 2.3.8 PPC PEFs are `'shlb'`/`'ndrv'` (USB
+  Manager/USB MIDI driver), not OMS `'OMdv'`/`'PPCC'` drivers; the
+  only authentic PPC PEF ever found in an OMS driver slot is Roland's
+  SC-8850 driver (no published project). (PROVENANCE.md)
+
+**Closest authentic known-good PPC target:**
+`Examples/SampleApp/SampleOMSApp.mcp` (CW4-era), target **"Sample
+OMS PPC"** with `TargetDataMacOS.tdt` + built artifacts
+(`ToolboxPPC` + `ToolboxPPC.xSYM`) — a PPC CFM app linked against
+MSL RuntimePPC.Lib + **OMSGluePPC.lib** + InterfaceLib, with the full
+PPC panel set (PPC CodeGen / PPC Linker / **PPC PEF** / PPC Project).
+The PPC PEF panel VALUES live in CW4 binary `.mcp`/`.tdt` records
+(panel names and library/file lists are string-extractable; the
+numeric settings are not) — read them by opening the project in
+CodeWarrior Pro 4 on the G4.
+
+**Next step (per the objective):** open
+`SampleOMSApp.mcp` in CW4 on the G4, inspect the "Sample OMS PPC"
+target's PPC PEF panel (main symbol, export style, section
+alignment, container layout), build it UNCHANGED to prove the
+known-good toolchain, then derive USBMIDI9's PPC target/linker
+configuration from those settings.
