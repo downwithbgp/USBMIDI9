@@ -82,26 +82,31 @@ The OMS Time Manager component (`OMS Time Manager.rsrc`, `PPCC` 1 =
 
 ## D. Verdict — our mainAddr is NOT a legal OMS UniversalProcPtr
 
-OMS (68K) receives the vector address as `mainAddr` and must treat it
-as a routine address (wrap it in a RoutineDescriptor / hand it to
-Mixed Mode). The vector is a DATA object, so executing it as PPC code
-is undefined garbage — note (2026-08-17 correction): the vector words
-`0x10000000`/`0x10001484` are primary-opcode-4 words, which on the
-G4's AltiVec CPU decode as vector-group instructions (e.g.
-`0x10000000` = `vaddubm v0,v0,v0`), NOT as `lwz`; they do not fault on
-their own. No specific instruction or fault location is predicted —
-execution wanders through the vector and the following loader strings
-until it hits an illegal encoding, an odd-address access, or worse.
-That is consistent with (but does not by itself prove) the observed
-device-independent type-2/type-3 crash at the first entry call. The
-authentic TM `.main` is plain code; ours is a transition vector. The
-fix direction: **make the PEF's main symbol point at the plain code**,
-i.e. get the CodeWarrior PPC PEF linker to emit a code-class export
-for `main` (see E2).
+OMS (68K) receives the mainAddr from GetDiskFragment and invokes it
+as a Mixed Mode UPP (RoutineDescriptor built from mainAddr). The
+2026-08-17 G4 + host analysis corrected the picture:
 
-Note: this is the primary hypothesis and matches all observations; it
-is not yet proven on the G4 (the crash could still originate inside
-our init code, which the staged diagnostic below isolates).
+- **The authentic TM PPCC's loader info has a VALID main symbol**:
+  `mainSection=1, mainOffset=0x3c` — i.e. GetDiskFragment returns
+  `data section base + 0x3c` = the transition vector
+  `[.main code, TOC]` stored in its data section (its export hash
+  table is EMPTY — exportCount=0). The TM WORKS on the G4, so a
+  transition-vector mainAddr is **callable by OMS** — the vector is
+  the normal CodeWarrior PEF main representation and Mixed Mode/CFM
+  handles it.
+- **Both of OUR PEFs (production 9501 B and the 257 B diagnostic)
+  have `mainSection = 0xFFFFFFFF` = NO main symbol in the loader
+  info**, plus a `'main'` export entry of class 2 pointing at the
+  transition vector in the data section. This is the structural
+  difference from the TM.
+- E1 (runtime, 2026-08-17): the 257-byte minimal-entry PEF (code =
+  exactly `li r3,0; blr`, zero imports, production init absent) STILL
+  crashed with type-2/type-3 → **production init exonerated**; the
+  crash is in the entry-call path with a `mainSection=-1` main
+  representation.
+
+The fix direction: **make the PEF's main symbol resolve directly to
+the executable code** (see E2).
 
 ## E. Smallest next G4 build
 
@@ -128,30 +133,51 @@ independently of the vector issue; in that case the minimal entry must
 be extended to write a valid `OMSFile*` (or a null-safe dummy) into
 `par1` before returning 0.
 
-**E2 — fix candidate (plain-code export):** with the same minimal
-entry, change the export form until the main symbol bytes start
-`7c 08 02 a6` (mflr). Try in order:
-1. Target Settings → **PPC PEF** panel: inspect for "Export
-   TOC-relative symbols" / transition-vector / main-symbol options and
-   change them; rebuild and re-check the bytes.
-2. `codewarrior/USBMIDI9_OMS.exp` syntax variants (plain `main` is
-   current; try the linker's documented export modifiers if the panel
-   offers none).
-3. Fallback (documented only, non-trivial): post-process the PEF
-   container's loader info so the main fields + export entry point at
-   the code offset instead of the vector (requires re-encoding the
-   reloc-form loader info; not attempted).
+**E2 — prepared (2026-08-17, host-side, not yet run on the G4):**
+controlled loader-metadata patch of the preserved 257-byte E1 PEF —
+NO rebuild, NO linker change. E2 = byte copy of E1 with exactly 6
+bytes changed so the main symbol resolves directly to the executable
+code instead of the vector:
 
-**Acceptance for the byte gate:** main symbol bytes = `7c 08 02 a6`
-and the vector table still present at the same offsets (vectors for
-the callbacks are harmless — only the MAIN symbol must be code).
+| offset | E1 | E2 | meaning |
+|---|---|---|---|
+| 0x080–0x083 | `FF FF FF FF` | `00 00 00 00` | loader-info `mainSection`: -1 (no main) → 0 (Code) |
+| 0x0D8 | `02` | `00` | `'main'` export entry class: 2 (TOC/vector) → 0 (code) |
+| 0x0E1 | `01` | `00` | `'main'` export entry sectionIndex: 1 (PackedData) → 0 (Code) |
 
-**Then:** install and run OMS Setup Search with the trivial entry. No
-crash → native PPC entry proven; proceed with the staged init
-binary-search (state reset → LinkToOMSGlue → OMSGetCallAddress → UPP
-creation → dispatch discovery → notifications → enumeration →
-device/port registration), one stage per build, keeping the byte gate
-on every rebuild.
+`mainOffset` (0x84) and the export `symbolValue` (0xDC) stay 0 — the
+entry now points at `Code section + 0`. No relocation metadata is
+affected (the patched fields are plain section indices/class, not
+relocated offsets; the entry's nameOffset=0 and value=0 are unchanged,
+so the loader-info relocation stream and the export hash (slot 0,
+key `main` len 4 hash 0x250) are untouched). The vector bytes remain
+in the data section as inert data, referenced by nothing.
+
+Ghidra proof (same PEF loader resolution CFM uses): E2 imports with
+`main @ 0x10000000` AND `.main @ 0x10000000` (E1: `main @ 0x10000010`
+= the vector), and the bytes at 0x10000000 =
+`38 60 00 00 4e 80 00 20` = **`li r3,0; blr`** — the direct
+executable entry. E2 = 257 bytes,
+sha256 `54fec171311f39d0fafb8464602e3877f5a7933c89d74d9772532d6099bb8647`
+(E1 sha256 `9b5f6182...` preserved untouched).
+
+**Interpretation (per the E1/E2 A/B):** E2 succeeds while E1 crashes
+⇒ the `mainSection=-1` + class-2 export main representation is the
+root cause; OMS expects a main symbol that resolves to a direct
+executable entry (note: the TM's own mainAddr is a vector via VALID
+loader-info main fields — so a valid `mainSection` is at least part
+of the contract). E2 also crashes ⇒ the main-symbol representation is
+not sufficient to explain the crash; investigate the OMS entry
+ABI/resource metadata next.
+
+**E2 G4 packaging gates:** (1) replace the preserved E1 file with the
+E2 bytes (`sha256 54fec171...`, 257 bytes) at
+`USBMIDI9:USBMIDI9_OMS`; (2) repackage with the SAME MacOS Merge /
+Resource File target (Rez `read 'PPCC' (1) "::USBMIDI9_OMS"`);
+(3) ResEdit BEFORE install: OMdi 128 =
+`7F 10 00 00 00 00 00 01 00 01 00 00 00 00 00 00` AND PPCC 1 =
+257 bytes beginning `4A 6F 79 21 70 65 66 66`; (4) install to System
+Folder:OMS Folder; (5) OMS Setup → Search → record crash type / none.
 
 ## F. Beginner G4 rebuild steps
 
