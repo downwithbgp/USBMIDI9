@@ -399,6 +399,19 @@ xxportNumB), then materialize + GetDiskFragment).
 
 ## Gate order (test on the G4, in this order)
 
+**PPCC entry gate — CURRENT (2026-08-17, G4 result: type-2/type-3
+crash in OMS Setup during Search, with or without the device).**
+The byte gates pass and the driver loads (-192 gone); the first
+native-PPC entry call crashes. Root-cause analysis (evidence in
+docs/oms-ppcc-entry-crash.md): the authentic OMS Time Manager PPCC's
+`.main` export points at plain PPC code, while our PEF's `main` symbol
+points at a **transition vector** (`[code,TOC]` data object) in the
+loader info — executing the vector as code reproduces the observed
+type-2/type-3. Next G4 gate = the minimal-entry diagnostic
+(`USBMIDI9_OMS_DIAG_MINIMAL_ENTRY` in oms/oms_driver.c) + the
+plain-code-export fix hunt (PPC PEF panel / .exp), with the main-symbol
+byte gate (`7c 08 02 a6`) checked BEFORE install.
+
 0. **PEF link gate — PASS (2026-08-16)**: OMS PEF target builds and
    links: 0 errors, 43 warnings. Membership per the manifest above.
 1. **Resource-assembly gate — CURRENT (outer-container PASS

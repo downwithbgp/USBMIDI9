@@ -615,9 +615,30 @@ long oms_handle_message(short msg, long par1, long par2)
 }
 
 /* Driver entry point (OMSDriver.h): called by OMS through the loaded
- * 'OMdv' code resource with the omdv* messages. Exported from the PEF
- * as `main` (codewarrior/USBMIDI9_OMS.exp). */
+ * 'PPCC' fragment's main symbol with the omdv* messages. Exported from
+ * the PEF as `main` (codewarrior/USBMIDI9_OMS.exp).
+ *
+ * Diagnostic build: define USBMIDI9_OMS_DIAG_MINIMAL_ENTRY (project
+ * preprocessor setting on the G4, or a prefix-file #define) to replace
+ * the entry with a trivial `return 0` for every message — NO
+ * LinkToOMSGlue, OMSGetCallAddress, NewRoutineDescriptor, USB Manager
+ * calls, FindSymbol, notifications, dispatch lookup or RX/TX code.
+ * This is the stage-0 diagnostic for the OMS Setup type-2/type-3
+ * crash gate (see docs/g4-handoff.md): returning 0 is safe for every
+ * driver message (OMS spec: omdvInit returns OMSErr; a driver that
+ * provides no devices/ports is legal). It is a TEMPORARY diagnostic —
+ * the production entry must remain oms_handle_message. */
+#ifdef USBMIDI9_OMS_DIAG_MINIMAL_ENTRY
+OMSCALLBACK(long) main(short msg, long par1, long par2)
+{
+    (void)msg;
+    (void)par1;
+    (void)par2;
+    return 0L;
+}
+#else
 OMSCALLBACK(long) main(short msg, long par1, long par2)
 {
     return oms_handle_message(msg, par1, par2);
 }
+#endif
