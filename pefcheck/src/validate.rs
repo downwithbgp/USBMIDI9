@@ -1,6 +1,7 @@
 //! Validation rules and the mechanical report (spec/pefcheck/tasks.md).
 
 use crate::pef::{Container, Section};
+use crate::reloc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MainTarget {
@@ -24,6 +25,9 @@ pub struct Report {
     /// non-code and the bytes are readable).
     pub target_bytes: Option<Vec<u8>>,
     pub vector: Option<VectorInfo>,
+    /// Post-relocation special-main analysis from the relocation simulator
+    /// (informational; never flips a verdict).
+    pub reloc_vector: Option<reloc::VectorAnalysis>,
     pub reloc_stream: Option<Vec<u8>>,
 }
 
@@ -191,6 +195,26 @@ pub fn validate(c: &Container) -> Report {
                     "main target content not decodable: {} (informational)",
                     e
                 )),
+            }
+        }
+        // Post-relocation special-main analysis (relocation simulator).
+        // Informational only — never flips a verdict.
+        if s.kind != 0 {
+            r.reloc_vector = reloc::special_main_vector(c);
+            if let Some(rv) = &r.reloc_vector {
+                if let Err(e) = &rv.decode_status {
+                    r.notes.push(format!(
+                        "relocated section {} decode: {}",
+                        rv.section_index, e
+                    ));
+                }
+                for imp in &rv.import_fixups {
+                    r.notes.push(format!(
+                        "external import fixup at section {} + 0x{:x} -> {}",
+                        rv.section_index, imp.offset, imp.symbol
+                    ));
+                }
+                r.notes.extend(rv.notes.iter().cloned());
             }
         }
     }

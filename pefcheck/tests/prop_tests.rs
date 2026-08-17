@@ -1,6 +1,7 @@
 //! Property-based tests (proptest, dev-dependency only).
 
 use pefcheck::pef::{unpack_packed, Container};
+use pefcheck::reloc;
 use pefcheck::sha256;
 use pefcheck::validate;
 use proptest::prelude::*;
@@ -126,5 +127,47 @@ fn sha256_boundary_lengths_stable() {
         assert_eq!(a, b, "sha256 unstable at len {}", len);
         assert_eq!(a.len(), 32);
         assert_eq!(sha256::hex(&a).len(), 64);
+    }
+}
+
+// Property 7: the relocation simulator never panics on single-byte mutations
+// of the real fixtures, for any section, and is deterministic.
+proptest! {
+    #[test]
+    fn reloc_sim_never_panics_and_is_deterministic(
+        idx in 0usize..9501,
+        byte in any::<u8>(),
+        which in proptest::sample::select(vec!["tm_ppcc1.pef", "omslib_ppcc601.pef", "e2b_oms.pef", "production_usbmidi9.pef"]),
+        section in 0usize..4,
+    ) {
+        let mut data = fixture(which);
+        if idx < data.len() {
+            data[idx] = byte;
+        }
+        if let Ok(c) = Container::parse(&data) {
+            // relocate_section on any section must not panic (may Err).
+            let _ = reloc::relocate_section(&c, section);
+            // special_main_vector must be deterministic.
+            let a = reloc::special_main_vector(&c);
+            let b = reloc::special_main_vector(&c);
+            assert_eq!(format!("{:?}", a), format!("{:?}", b));
+        }
+    }
+}
+
+// Property 8: unpack_packed_partial is deterministic and, when it reports a
+// full decode, yields exactly out_len bytes; a partial decode is shorter.
+proptest! {
+    #[test]
+    fn unpack_partial_length_contract(
+        stream in proptest::collection::vec(any::<u8>(), 0..64),
+        out_len in 0usize..512,
+    ) {
+        let (out, status) = pefcheck::pef::unpack_packed_partial(&stream, out_len);
+        assert!(out.len() <= out_len);
+        match status {
+            Ok(()) => assert_eq!(out.len(), out_len),
+            Err(e) => assert!(!e.is_empty()),
+        }
     }
 }

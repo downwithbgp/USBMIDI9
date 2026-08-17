@@ -1,6 +1,8 @@
 # pefcheck — tasks
 
 Status: process reset after E2b. No new PPCC diagnostics. Host-side tooling only.
+The structural checker below is complemented by the relocation simulator in
+`spec/pefcheck-reloc/`.
 
 ## Goal
 

@@ -277,100 +277,8 @@ fn parse_exports(
 /// block), 4 = RepeatZero (len = value, count = varint; emit
 /// len*(count+1) zeros). Opcodes 5-7 are reserved.
 pub fn unpack_packed(data: &[u8], out_len: usize) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(out_len);
-    let mut pos = 0usize;
-    while out.len() < out_len {
-        if pos >= data.len() {
-            return Err(format!(
-                "packed stream exhausted at {}/{} output bytes (stream pos {})",
-                out.len(),
-                out_len,
-                pos
-            ));
-        }
-        let b = data[pos];
-        pos += 1;
-        let opcode = b >> 5;
-        let mut value = (b & 0x1f) as usize;
-        if value == 0 {
-            let (v, p) = varint(data, pos)?;
-            value = v;
-            pos = p;
-        }
-        match opcode {
-            0 => {
-                grow(&out, out_len, value, "Zero")?;
-                out.resize(out.len() + value, 0);
-            }
-            1 => {
-                let (block, p) = take(data, pos, value, "Block")?;
-                grow(&out, out_len, value, "Block")?;
-                out.extend_from_slice(block);
-                pos = p;
-            }
-            2 => {
-                let (count, p) = varint(data, pos)?;
-                pos = p;
-                let (block, p) = take(data, pos, value, "Repeat")?;
-                pos = p;
-                let n = count
-                    .checked_add(1)
-                    .and_then(|c| c.checked_mul(block.len()))
-                    .ok_or_else(|| "Repeat size overflow".to_string())?;
-                grow(&out, out_len, n, "Repeat")?;
-                if n > 0 {
-                    for _ in 0..=count {
-                        out.extend_from_slice(block);
-                    }
-                }
-            }
-            3 => {
-                let blen = value;
-                let (count, p) = varint(data, pos)?;
-                pos = p;
-                let (gap, p) = varint(data, pos)?;
-                pos = p;
-                let (block, p) = take(data, pos, blen, "RepeatBlock")?;
-                pos = p;
-                let (gblock, p) = take(data, pos, gap, "RepeatBlock")?;
-                pos = p;
-                let n = blen
-                    .checked_add(gap)
-                    .and_then(|v| v.checked_mul(count))
-                    .and_then(|v| v.checked_add(blen))
-                    .ok_or_else(|| "RepeatBlock size overflow".to_string())?;
-                grow(&out, out_len, n, "RepeatBlock")?;
-                if n > 0 {
-                    for _ in 0..count {
-                        out.extend_from_slice(block);
-                        out.extend_from_slice(gblock);
-                    }
-                    out.extend_from_slice(block);
-                }
-            }
-            4 => {
-                let (count, p) = varint(data, pos)?;
-                pos = p;
-                let n = value
-                    .checked_mul(
-                        count
-                            .checked_add(1)
-                            .ok_or_else(|| "RepeatZero count overflow".to_string())?,
-                    )
-                    .ok_or_else(|| "RepeatZero size overflow".to_string())?;
-                grow(&out, out_len, n, "RepeatZero")?;
-                out.resize(out.len() + n, 0);
-            }
-            _ => {
-                return Err(format!(
-                    "reserved packed-data opcode {} at stream byte {}",
-                    opcode,
-                    pos - 1
-                ));
-            }
-        }
-    }
-    Ok(out)
+    let (out, status) = unpack_packed_partial(data, out_len);
+    status.map(|_| out)
 }
 
 fn grow(out: &[u8], out_len: usize, add: usize, op: &str) -> Result<(), String> {
@@ -381,6 +289,189 @@ fn grow(out: &[u8], out_len: usize, add: usize, op: &str) -> Result<(), String> 
         ));
     }
     Ok(())
+}
+
+/// Like `unpack_packed`, but returns the longest decodable prefix even when
+/// the stream hits a reserved opcode or runs out, so a relocation simulator
+/// can still use the bytes it did decode. Returns `(content, Ok(()))` on a
+/// full decode; `(content, Err(msg))` on a partial one (`content` is the
+/// prefix decoded before the stop, which is shorter than `out_len`).
+pub fn unpack_packed_partial(data: &[u8], out_len: usize) -> (Vec<u8>, Result<(), String>) {
+    let mut out = Vec::with_capacity(out_len);
+    let mut pos = 0usize;
+    loop {
+        if out.len() >= out_len {
+            return (out, Ok(()));
+        }
+        if pos >= data.len() {
+            let got = out.len();
+            return (
+                out,
+                Err(format!(
+                    "packed stream exhausted at {}/{} output bytes (stream pos {})",
+                    got, out_len, pos
+                )),
+            );
+        }
+        let b = data[pos];
+        pos += 1;
+        let opcode = b >> 5;
+        let mut value = (b & 0x1f) as usize;
+        if value == 0 {
+            let (v, p) = match varint(data, pos) {
+                Ok(x) => x,
+                Err(e) => return (out, Err(e)),
+            };
+            value = v;
+            pos = p;
+        }
+        match opcode {
+            0 => {
+                if grow(&out, out_len, value, "Zero").is_err() {
+                    return (
+                        out,
+                        Err(format!(
+                            "packed-data overrun: Zero would exceed unpackedLength {}",
+                            out_len
+                        )),
+                    );
+                }
+                out.resize(out.len() + value, 0);
+            }
+            1 => {
+                let (block, p) = match take(data, pos, value, "Block") {
+                    Ok(x) => x,
+                    Err(e) => return (out, Err(e)),
+                };
+                if grow(&out, out_len, value, "Block").is_err() {
+                    return (
+                        out,
+                        Err(format!(
+                            "packed-data overrun: Block would exceed unpackedLength {}",
+                            out_len
+                        )),
+                    );
+                }
+                out.extend_from_slice(block);
+                pos = p;
+            }
+            2 => {
+                let (count, p) = match varint(data, pos) {
+                    Ok(x) => x,
+                    Err(e) => return (out, Err(e)),
+                };
+                pos = p;
+                let (block, p) = match take(data, pos, value, "Repeat") {
+                    Ok(x) => x,
+                    Err(e) => return (out, Err(e)),
+                };
+                pos = p;
+                let n = match count
+                    .checked_add(1)
+                    .and_then(|c| c.checked_mul(block.len()))
+                {
+                    Some(x) => x,
+                    None => return (out, Err("Repeat size overflow".to_string())),
+                };
+                if grow(&out, out_len, n, "Repeat").is_err() {
+                    return (
+                        out,
+                        Err(format!(
+                            "packed-data overrun: Repeat would exceed unpackedLength {}",
+                            out_len
+                        )),
+                    );
+                }
+                if n > 0 {
+                    for _ in 0..=count {
+                        out.extend_from_slice(block);
+                    }
+                }
+            }
+            3 => {
+                let blen = value;
+                let (count, p) = match varint(data, pos) {
+                    Ok(x) => x,
+                    Err(e) => return (out, Err(e)),
+                };
+                pos = p;
+                let (gap, p) = match varint(data, pos) {
+                    Ok(x) => x,
+                    Err(e) => return (out, Err(e)),
+                };
+                pos = p;
+                let (block, p) = match take(data, pos, blen, "RepeatBlock") {
+                    Ok(x) => x,
+                    Err(e) => return (out, Err(e)),
+                };
+                pos = p;
+                let (gblock, p) = match take(data, pos, gap, "RepeatBlock") {
+                    Ok(x) => x,
+                    Err(e) => return (out, Err(e)),
+                };
+                pos = p;
+                let n = match blen
+                    .checked_add(gap)
+                    .and_then(|v| v.checked_mul(count))
+                    .and_then(|v| v.checked_add(blen))
+                {
+                    Some(x) => x,
+                    None => return (out, Err("RepeatBlock size overflow".to_string())),
+                };
+                if grow(&out, out_len, n, "RepeatBlock").is_err() {
+                    return (
+                        out,
+                        Err(format!(
+                            "packed-data overrun: RepeatBlock would exceed unpackedLength {}",
+                            out_len
+                        )),
+                    );
+                }
+                if n > 0 {
+                    for _ in 0..count {
+                        out.extend_from_slice(block);
+                        out.extend_from_slice(gblock);
+                    }
+                    out.extend_from_slice(block);
+                }
+            }
+            4 => {
+                let (count, p) = match varint(data, pos) {
+                    Ok(x) => x,
+                    Err(e) => return (out, Err(e)),
+                };
+                pos = p;
+                let c1 = match count.checked_add(1) {
+                    None => return (out, Err("RepeatZero count overflow".to_string())),
+                    Some(v) => v,
+                };
+                let n = match value.checked_mul(c1) {
+                    None => return (out, Err("RepeatZero size overflow".to_string())),
+                    Some(v) => v,
+                };
+                if grow(&out, out_len, n, "RepeatZero").is_err() {
+                    return (
+                        out,
+                        Err(format!(
+                            "packed-data overrun: RepeatZero would exceed unpackedLength {}",
+                            out_len
+                        )),
+                    );
+                }
+                out.resize(out.len() + n, 0);
+            }
+            _ => {
+                return (
+                    out,
+                    Err(format!(
+                        "reserved packed-data opcode {} at stream byte {}",
+                        opcode,
+                        pos - 1
+                    )),
+                );
+            }
+        }
+    }
 }
 
 fn varint(data: &[u8], mut pos: usize) -> Result<(usize, usize), String> {

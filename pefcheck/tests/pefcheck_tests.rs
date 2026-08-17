@@ -1,6 +1,7 @@
 //! Fixture-based integration tests for pefcheck.
 
 use pefcheck::pef::Container;
+use pefcheck::reloc::{self, VectorStatus};
 use pefcheck::sha256;
 use pefcheck::validate;
 
@@ -200,4 +201,99 @@ fn tm_stream_hits_reserved_opcode_5_via_parser() {
         "TM note missing, got: {:?}",
         r.notes
     );
+}
+
+// ---- relocation simulator (spec/pefcheck-reloc) ---------------------------
+
+fn assert_valid_vector(rv: &reloc::VectorAnalysis, entry_sec: usize, toc_sec: usize) {
+    match &rv.status {
+        VectorStatus::Valid { entry, toc } => {
+            assert_eq!(entry.section_index, entry_sec, "entry section");
+            assert_eq!(entry.offset, 0, "entry offset");
+            assert_eq!(toc.section_index, toc_sec, "toc section");
+            assert_eq!(toc.offset, 0, "toc offset");
+        }
+        other => panic!("expected a Valid vector, got {:?}", other),
+    }
+}
+
+#[test]
+fn tm_relocation_sim_resolves_vector_and_imports() {
+    let c = Container::parse(&fixture("tm_ppcc1.pef")).unwrap();
+    let rv = reloc::special_main_vector(&c).expect("TM must have a relocation analysis");
+    assert_eq!(rv.section_index, 1);
+    assert_eq!(rv.main_offset, 0x3c);
+    assert!(rv.decode_status.is_err(), "TM data decode is partial");
+    assert_valid_vector(&rv, 0, 1);
+    // The 7 imported symbols from InterfaceLib are external fixups.
+    let names: Vec<&str> = rv.import_fixups.iter().map(|i| i.symbol.as_str()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "CallUniversalProc",
+            "Get1Resource",
+            "RecoverHandle",
+            "DetachResource",
+            "DebugStr",
+            "DisposeHandle",
+            "HLock",
+        ]
+    );
+    // The vector bytes are the synthetic section-0 and section-1 bases.
+    assert_eq!(rv.bytes.unwrap(), [0x10, 0, 0, 0, 0x10, 0, 0x04, 0x70]);
+}
+
+#[test]
+fn omslib601_relocation_sim_resolves_vector() {
+    let c = Container::parse(&fixture("omslib_ppcc601.pef")).unwrap();
+    let rv = reloc::special_main_vector(&c).expect("601 must have a relocation analysis");
+    assert_eq!(rv.section_index, 1);
+    assert_eq!(rv.main_offset, 0x4);
+    assert!(rv.decode_status.is_ok(), "601 data decodes fully");
+    assert_valid_vector(&rv, 0, 1);
+    assert_eq!(rv.import_fixups.len(), 1);
+    assert_eq!(rv.import_fixups[0].symbol, "CallUniversalProc");
+}
+
+#[test]
+fn e_series_relocation_sim_resolves_vector_for_e2a() {
+    // E1 has no special main (mainSection = -1) -> no relocation analysis.
+    let c = Container::parse(&fixture("e1_oms.pef")).unwrap();
+    assert!(reloc::special_main_vector(&c).is_none());
+    // E2a/E2b point their special main at the packed section's vector.
+    for name in ["e2a_oms.pef", "e2b_oms.pef"] {
+        let c = Container::parse(&fixture(name)).unwrap();
+        let rv = reloc::special_main_vector(&c).unwrap_or_else(|| panic!("{}", name));
+        assert_valid_vector(&rv, 0, 1);
+    }
+}
+
+#[test]
+fn production_has_no_special_main_relocation() {
+    let c = Container::parse(&fixture("production_usbmidi9.pef")).unwrap();
+    assert!(reloc::special_main_vector(&c).is_none());
+}
+
+#[test]
+fn e2b_reloc_sim_does_not_mask_invalid_verdict() {
+    // The simulator reconstructs E2b's vector, but the 0xE2 code-offset
+    // alignment error must still make the container INVALID.
+    let c = Container::parse(&fixture("e2b_oms.pef")).unwrap();
+    let r = validate::validate(&c);
+    assert!(r.reloc_vector.is_some(), "E2b must still run the sim");
+    assert!(!r.valid(), "E2b must remain INVALID despite the sim");
+}
+
+#[test]
+fn synthetic_bases_are_deterministic_and_16_aligned() {
+    let c = Container::parse(&fixture("tm_ppcc1.pef")).unwrap();
+    let a = reloc::synthetic_bases(&c);
+    let b = reloc::synthetic_bases(&c);
+    assert_eq!(a, b);
+    assert_eq!(a[0], reloc::SYNTHETIC_BASE0);
+    // Section 1 base = align16(section 0 base + total) = 0x10000470.
+    assert_eq!(a[1], 0x1000_0470);
+    for (i, base) in a.iter().enumerate() {
+        assert_eq!(base % 16, 0, "section {} base not 16-aligned", i);
+    }
 }

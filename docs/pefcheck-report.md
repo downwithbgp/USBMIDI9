@@ -105,13 +105,42 @@ evidence about OMS entry/init/dispose behavior.
    contents** (zeros/stub): the container does not carry a materialized
    transition vector's pointer values, and this does NOT establish the
    vector is absent from the PEF representation — CFM relocation
-   materializes the vector's pointers at preparation (load) time. A
-   container-only decode therefore cannot resolve the vector; pefcheck
-   reports the raw target bytes + the relocation-stream presence.
-   (The relocation simulator, next milestone, runs the program to
-   materialize the pointers.)
+   materializes the vector's pointers at preparation (load) time. The
+   **relocation simulator** (`src/reloc.rs`, spec/pefcheck-reloc) now runs
+   each relocation program against deterministic synthetic section bases
+   and reconstructs the vector: TM (1+0x3C), 601 (1+0x4), E2a/E2b (1+0x0)
+   all yield a valid vector whose entry = section 0 + 0 and TOC = section
+   1 + 0 (both 4-byte aligned, in-bounds). E1 and production have no
+   special main (`mainSection = -1`); production's packed data decodes to
+   0 bytes (reserved opcode 6) so its export target is not reconstructible.
 5. The E-series' four-byte relocation stream (`46 00 00 00`) is identical
    to the production's first instructions' shape; the production carries a
    full 16+ byte relocation program.
 6. Exports parse and resolve by name: production and the E-series export
    exactly one symbol, `main`, class 2, pointing into section 1.
+
+## Relocation simulator results (spec/pefcheck-reloc)
+
+`src/reloc.rs` applies each fixture's relocation program (big-endian 16-bit
+chunks) to its relocated section against deterministic synthetic section
+bases (`base[0]=0x10000000`, contiguous, 16-aligned), then reports the
+special-main bytes and resolves any valid PPC transition vector.
+
+| fixture | relocated section | decode | special main | reconstructed vector | resolution |
+|---|---|---|---|---|---|
+| TM | 1 (PackedData) | partial 90/167 (reserved op 5) | 1 + 0x3C | `[10000000, 10000470]` | entry→sec0+0, toc→sec1+0 |
+| OMSLib 601 | 1 | ok 12/12 | 1 + 0x4 | `[10000000, 100000D0]` | entry→sec0+0, toc→sec1+0 |
+| E1 | 1 | ok 8/8 | none (−1) | — | no special main |
+| E2a | 1 | ok 8/8 | 1 + 0x0 | `[10000000, 10000010]` | entry→sec0+0, toc→sec1+0 |
+| E2b | 1 | ok 8/8 | 1 + 0x0 | `[10000000, 10000020]` | entry→sec0+0, toc→sec1+0 (INVALID for code offset 0xE2) |
+| production | 1 | partial 0/468 (reserved op 6) | none (−1) | — | data not reconstructible |
+
+The authentic TM and 601 fixtures both reconstruct to a valid vector whose
+entry is the code section base and TOC is the data section base — the exact
+CFM fragment-entry shape. TM's packed stream decodes through the vector
+location (offset 0x3C is within the 90-byte prefix) with zero pre-relocation
+content there, so the reconstruction is exact despite the later reserved
+opcode. E2b reconstructs its vector identically to E2a yet remains INVALID
+for the code-section container-alignment defect; the simulator never masks a
+structural error. Imported-symbol pointers (external) are reported as
+unresolved fixups and their words are left unchanged.

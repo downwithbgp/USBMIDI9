@@ -4,6 +4,7 @@
 //! Exit: 0 = all files PASS, 1 = any file INVALID, 2 = parse error only.
 
 use pefcheck::pef;
+use pefcheck::reloc;
 use pefcheck::sha256;
 use pefcheck::validate;
 
@@ -129,10 +130,58 @@ fn print_report(c: &pef::Container, r: &validate::Report) {
                 .join(" ")
         );
     }
+    if let Some(rv) = &r.reloc_vector {
+        let d = match &rv.decode_status {
+            Ok(()) => "ok".to_string(),
+            Err(e) => format!("partial: {}", e),
+        };
+        println!(
+            "  relocation sim: section {} + 0x{:x} (decode {}) bytes={}",
+            rv.section_index,
+            rv.main_offset,
+            d,
+            rv.bytes
+                .map(|b| b
+                    .iter()
+                    .map(|x| format!("{:02x}", x))
+                    .collect::<Vec<_>>()
+                    .join(" "))
+                .unwrap_or_else(|| "-".to_string())
+        );
+        match &rv.status {
+            reloc::VectorStatus::Valid { entry, toc } => {
+                let e = resolve_str(entry);
+                let t = resolve_str(toc);
+                println!(
+                    "  relocation sim: VALID transition vector entry=0x{:08x} ({}) toc=0x{:08x} ({})",
+                    entry.word, e, toc.word, t
+                );
+            }
+            reloc::VectorStatus::NotAVector { word0, word1 } => {
+                println!(
+                    "  relocation sim: not a valid vector (word0=0x{:08x} word1=0x{:08x})",
+                    word0, word1
+                );
+            }
+            reloc::VectorStatus::BeyondDecodedPrefix => {
+                println!(
+                    "  relocation sim: cannot reconstruct (special-main location beyond decoded prefix)"
+                );
+            }
+        }
+    }
     for n in &r.notes {
         println!("  note: {}", n);
     }
     for e in &r.errors {
         println!("  ERROR: {}", e);
+    }
+}
+
+fn resolve_str(p: &reloc::ResolvedPointer) -> String {
+    if p.section_index == usize::MAX {
+        format!("unresolved 0x{:08x}", p.word)
+    } else {
+        format!("section {} + 0x{:x}", p.section_index, p.offset)
     }
 }
