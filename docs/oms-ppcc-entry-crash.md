@@ -84,14 +84,20 @@ The OMS Time Manager component (`OMS Time Manager.rsrc`, `PPCC` 1 =
 
 OMS (68K) receives the vector address as `mainAddr` and must treat it
 as a routine address (wrap it in a RoutineDescriptor / hand it to
-Mixed Mode). Executing the vector bytes as PPC code runs
-`lwz r0,0x1484(r1)`-style loads over the vector + the following loader
-strings ("USBMIDI9 Port ..."), faulting with an illegal instruction or
-address error — **exactly the observed device-independent type-2/type-3
-crash at the first entry call**. The authentic TM `.main` is plain
-code; ours is a transition vector. The fix direction: **make the PEF's
-main symbol point at the plain code**, i.e. get the CodeWarrior PPC
-PEF linker to emit a code-class export for `main` (see E2).
+Mixed Mode). The vector is a DATA object, so executing it as PPC code
+is undefined garbage — note (2026-08-17 correction): the vector words
+`0x10000000`/`0x10001484` are primary-opcode-4 words, which on the
+G4's AltiVec CPU decode as vector-group instructions (e.g.
+`0x10000000` = `vaddubm v0,v0,v0`), NOT as `lwz`; they do not fault on
+their own. No specific instruction or fault location is predicted —
+execution wanders through the vector and the following loader strings
+until it hits an illegal encoding, an odd-address access, or worse.
+That is consistent with (but does not by itself prove) the observed
+device-independent type-2/type-3 crash at the first entry call. The
+authentic TM `.main` is plain code; ours is a transition vector. The
+fix direction: **make the PEF's main symbol point at the plain code**,
+i.e. get the CodeWarrior PPC PEF linker to emit a code-class export
+for `main` (see E2).
 
 Note: this is the primary hypothesis and matches all observations; it
 is not yet proven on the G4 (the crash could still originate inside
@@ -112,8 +118,9 @@ dump the `main` symbol bytes — the scripts used for this analysis are
 in /tmp/omsdiag/ghidra/; or compare the PPCC 1 bytes with the old
 PEF's main-symbol offset). If the main symbol is STILL a transition
 vector (expected — same linker behavior), the crash should persist
-even with the trivial entry; that points at the export-form problem
-and rules out our init code. **Alternate outcome to keep in mind:** if
+even with the trivial entry; that makes the export-form problem
+**strongly implicated** and **exonerates the production init code**.
+**Alternate outcome to keep in mind:** if
 OMS dereferences `*par1` (an `OMSFile*`) after a successful omdvInit
 — the authentic TM writes a word to `*par1` before returning 0, while
 the minimal entry leaves it untouched — the crash could persist
