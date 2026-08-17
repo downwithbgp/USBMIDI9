@@ -399,19 +399,31 @@ xxportNumB), then materialize + GetDiskFragment).
 
 ## Gate order (test on the G4, in this order)
 
-**PPCC entry gate — CURRENT (2026-08-17, G4 result: type-2/type-3
-crash in OMS Setup during Search, with or without the device).**
-The byte gates pass and the driver loads (-192 gone); the first
-native-PPC entry call crashes. Root-cause analysis (evidence in
-docs/oms-ppcc-entry-crash.md): the authentic OMS Time Manager PPCC's
-`.main` export points at plain PPC code, while our PEF's `main` symbol
-points at a **transition vector** (`[code,TOC]` data object) in the
-loader info — executing the vector as code likely reproduces the
-observed type-2/type-3 (primary hypothesis; see the doc for the
-alternate *par1 outcome and the not-yet-proven caveat). Next G4 gate = the minimal-entry diagnostic
-(`USBMIDI9_OMS_DIAG_MINIMAL_ENTRY` in oms/oms_driver.c) + the
-plain-code-export fix hunt (PPC PEF panel / .exp), with the main-symbol
-byte gate (`7c 08 02 a6`) checked BEFORE install.
+**PPCC entry gate — CLOSED (2026-08-18, G4 runtime PASS).** The
+root cause of the missing CFM special main was confirmed: the
+USBMIDI9 PPC OMS target had **PPC Linker → Entry points → Main left
+blank**. Setting it to `main` makes CodeWarrior's linker itself
+populate the PEF loader-info special-main fields (`mainSection=1`,
+`mainOffset=0`) and emit the valid relocation-generated transition
+vector — no PEF patching. A linker-generated call/return diagnostic
+(oms/oms_driver.c `(msg==omdvInit)?-1L:0L`, sha256 `b46c7251…`) passed
+every static gate (pefcheck PASS, mainSection=1, COMPLETE decode +
+replay, VALID TVector8, aligned) and then **OMS Setup → Search
+completed successfully with NO crash**: OMS calls the PPC main, the
+omdvInit return -1 returns through Mixed Mode to OMS, and OMS handles
+the failed-init path cleanly. The PEF/CFM/Mixed Mode entry problem is
+**CLOSED**; do NOT create further PEF diagnostics.
+
+**PERMANENT production target setting (required, not optional):** the
+OMS PEF target (Target A) MUST keep **PPC Linker → Entry points →
+Main = `main`** for all future builds. Do not blank it again. The
+production entry is the `#else` branch of
+`USBMIDI9_OMS_DIAG_MINIMAL_ENTRY` in oms/oms_driver.c
+(`return oms_handle_message(...)`); `USBMIDI9_OMS_DIAG_MINIMAL_ENTRY`
+must be OFF (not defined) for the production build. The G4 diagnostic
+prefix file `USBMIDI9/USBMIDI9_OMS_diag_prefix.h` (which defines
+`USBMIDI9_OMS_DIAG_MINIMAL_ENTRY`) must NOT be referenced by the
+production OMS PEF target.
 
 0. **PEF link gate — PASS (2026-08-16)**: OMS PEF target builds and
    links: 0 errors, 43 warnings. Membership per the manifest above.
