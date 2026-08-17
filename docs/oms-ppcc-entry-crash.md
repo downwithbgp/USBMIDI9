@@ -316,12 +316,25 @@ the same pascal procInfo. The vector representation is therefore
 exonerated; the divergence is the ENTRY BEHAVIOR (the TM writes
 *par1 and returns 0 / returns 0 for all messages; E2a just returns 0).
 
-### G.6 E2b — proposed (STAGED HOST-SIDE, NOT installed; G4 run TBD)
+### G.6 E2b — **INVALID DIAGNOSTIC (G4 runtime result 2026-08-18); FROZEN**
 
-Purpose: prove E2a's native entry can be called and can return
-cleanly to OMS **without letting Search proceed into later driver
-messages** — by returning a known nonzero OSErr from omdvInit, which
-per G.3 triggers OMS's documented dispose-and-skip path (no
+**Status: INVALID — E2b provides NO evidence about OMS
+entry/init/dispose behavior.** The G4 runtime result was an
+illegal-instruction failure, and MacsBug shows the E2b PPC code is
+not correctly word-aligned in memory. Root cause: E2b moved the code
+section's containerOffset from the aligned 0xF0 (E1/E2a) to the
+misaligned **0xE2** (0xE2 mod 16 = 2 ≠ 0). Apple's PEF specification
+requires code sections to be at least 16-byte aligned in the
+container. The E2b layout is therefore invalid PEF, and its runtime
+failure is explained by the invalid section layout alone.
+
+The design below is retained for the record only (it was never
+exercised by a valid PEF):
+
+Purpose (as designed): prove E2a's native entry can be called and can
+return cleanly to OMS **without letting Search proceed into later
+driver messages** — by returning a known nonzero OSErr from omdvInit,
+which per G.3 triggers OMS's documented dispose-and-skip path (no
 omdvAddDevices, no *par1 read).
 
 - Code (20 bytes at container 0xE2; msg-aware — the 8-byte
@@ -348,7 +361,8 @@ omdvAddDevices, no *par1 read).
   G.3 error path may present the 0x10934 reporter alert unless the
   Search flow passes the silent flag (flags bit 2); the G4 run will
   show which — either way the entry's call+return is proven.
-- Staged artifact: `/tmp/omsdiag/e2b_oms.pef` = 257 bytes, sha256
+- Staged artifact (FROZEN, not to be modified or reused):
+  `/tmp/omsdiag/e2b_oms.pef` = 257 bytes, sha256
   `87d12ec09db1d411e261d648f99b93cd04eb96977053e6702d1abf50b5d2dd60`.
   Byte diff vs E1: 0x30-0x3B (sec0 total/unpacked/packed 8 → 20),
   0x3C-0x3F (containerOff 0xF0 → 0xE2), 0x80-0x83 (mainSection -1 →
@@ -369,3 +383,34 @@ omdvAddDevices, no *par1 read).
   MacOS Merge target, ResEdit-verify OMdi 128 + PPCC 1 = 257 bytes
   `Joy!peffpwpc`, install, OMS Setup → Search, record: crash type /
   alert text / clean-skip.
+
+## H. Freeze + next objective (2026-08-18)
+
+**Frozen set (do not modify, do not rebuild, do not manually patch):**
+- E1 (preserved 257-byte minimal-entry PEF): sha256
+  `9b5f6182dafce541a6ca02fec243af245109974afb198cd9fd2beef790579916`
+- E2 (direct-code variant): sha256
+  `54fec171311f39d0fafb8464602e3877f5a7933c89d74d9772532d6099bb8647`
+- E2a (special-main vector variant): sha256
+  `fa86b26d440fbefe4875b255a73df94985304e587a27f71e46b7396700b99907`
+- E2b (INVALID: misaligned code containerOffset 0xE2): sha256
+  `87d12ec09db1d411e261d648f99b93cd04eb96977053e6702d1abf50b5d2dd60`
+- MacsBug evidence from the E2b G4 run (code not word-aligned in
+  memory; illegal-instruction) — frozen with the artifacts.
+
+**No E2c.** No further manually patched PEFs. The E-series manual
+patching approach is closed: E1/E2a showed the entry-call path is
+exercised (crashes moved), E2b is invalid for a section-alignment
+reason that only a real linker would get right.
+
+**Next objective:** identify an authentic Opcode PPC OMS sample
+driver CodeWarrior project/target, build it UNCHANGED on the G4, and
+verify OMS Setup Search accepts it. Derive USBMIDI9's PPC
+target/linker configuration (PPC PEF panel: main-symbol handling,
+export style, section alignment, container layout) from that
+known-good project instead of synthesizing PEF structures manually.
+Candidate sources: the OMS 2.0 SDK `Examples/SampleDriver -
+SampleCell` CodeWarrior project (`SampleCell.π.rsrc` — check for a
+PPC target), other SDK Examples, the OMS 2.3.8 distribution
+(`/home/vadim/research/oms/oms238*`), and web archives of Opcode OMS
+SDK materials.
