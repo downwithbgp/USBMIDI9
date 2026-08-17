@@ -1,25 +1,68 @@
 //! pefcheck — mechanical structural checker for PowerPC PEF containers.
 //!
-//! Usage: pefcheck <file>...
-//! Exit: 0 = all files PASS, 1 = any file INVALID, 2 = parse error only.
+//! Usage: pefcheck [--trapcheck [--expect N]] <file>...
+//! Exit: 0 = all files PASS, 1 = any file INVALID / trap mismatch,
+//!       2 = parse error only.
 
 use pefcheck::pef;
 use pefcheck::reloc;
 use pefcheck::sha256;
+use pefcheck::trapcheck;
 use pefcheck::validate;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.is_empty() {
-        eprintln!("usage: pefcheck <pef-file>...");
+    let mut trapcheck_mode = false;
+    let mut expect: Option<usize> = None;
+    let mut files: Vec<String> = Vec::new();
+    let mut args = std::env::args().skip(1).peekable();
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--trapcheck" => trapcheck_mode = true,
+            "--expect" => {
+                let n = match args.next() {
+                    Some(n) => n,
+                    None => {
+                        eprintln!("--expect requires a value");
+                        return ExitCode::from(2);
+                    }
+                };
+                expect = match n.parse::<usize>() {
+                    Ok(v) => Some(v),
+                    Err(_) => {
+                        eprintln!("invalid --expect value: {}", n);
+                        return ExitCode::from(2);
+                    }
+                };
+            }
+            _ => {
+                if let Some(n) = a.strip_prefix("--expect=") {
+                    expect = match n.parse::<usize>() {
+                        Ok(v) => Some(v),
+                        Err(_) => {
+                            eprintln!("invalid --expect value: {}", n);
+                            return ExitCode::from(2);
+                        }
+                    };
+                } else {
+                    files.push(a);
+                }
+            }
+        }
+    }
+    if files.is_empty() {
+        eprintln!("usage: pefcheck [--trapcheck [--expect N]] <pef-file>...");
         return ExitCode::from(2);
+    }
+
+    if trapcheck_mode {
+        return trapcheck_run(&files, expect);
     }
 
     let mut any_invalid = false;
     let mut any_parse_error = false;
-    for path in &args {
+    for path in &files {
         let data = match std::fs::read(path) {
             Ok(d) => d,
             Err(e) => {
@@ -193,5 +236,147 @@ fn resolve_str(p: &reloc::ResolvedPointer) -> String {
         format!("unresolved 0x{:08x}", p.word)
     } else {
         format!("section {} + 0x{:x}", p.section_index, p.offset)
+    }
+}
+
+/// --trapcheck mode: scan code sections for the MacsBug low-level
+/// debugger trap word (0x7F800008) and report each checkpoint
+/// mechanically: code offset, PPCC-relative (= container) offset,
+/// breadcrumb tag, and the decoded next instruction.
+fn trapcheck_run(files: &[String], expect: Option<usize>) -> ExitCode {
+    let mut any_fail = false;
+    let mut any_parse_error = false;
+    for path in files {
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("{}: cannot read: {}", path, e);
+                any_parse_error = true;
+                continue;
+            }
+        };
+        println!(
+            "=== trapcheck: {} ({} bytes, sha256 {}) ===",
+            path,
+            data.len(),
+            sha256::hex(&sha256::sha256(&data))
+        );
+        let c = match pef::Container::parse(&data) {
+            Ok(c) => c,
+            Err(e) => {
+                println!("PARSE ERROR: {}", e);
+                any_parse_error = true;
+                println!();
+                continue;
+            }
+        };
+
+        let mut total = 0usize;
+        let mut unknown_tags = 0usize;
+        let mut tags: Vec<&str> = Vec::new();
+        for (si, s) in c.sections.iter().enumerate() {
+            if s.kind != 0 && s.kind != 6 {
+                continue; // Code / ExecutableData only
+            }
+            if s.container_length != s.unpacked_length {
+                println!(
+                    "  WARNING: section {} ({} kind) is packed (container {} != unpacked {}); scan may be incomplete",
+                    si,
+                    s.kind_name(),
+                    s.container_length,
+                    s.unpacked_length
+                );
+            }
+            let bytes = match trapcheck::section_bytes(&c, s) {
+                Ok(b) => b,
+                Err(e) => {
+                    println!("  WARNING: section {} bytes unavailable: {}", si, e);
+                    continue;
+                }
+            };
+            let hits = trapcheck::scan_section(&bytes, s.container_offset as usize);
+            if hits.is_empty() {
+                continue;
+            }
+            println!(
+                "  section {} ({}): {} traps @container 0x{:x}",
+                si,
+                s.kind_name(),
+                hits.len(),
+                s.container_offset
+            );
+            for h in &hits {
+                total += 1;
+                if h.tag.is_none() {
+                    unknown_tags += 1;
+                }
+                let tag_txt = match h.tag {
+                    Some((t, name)) => {
+                        tags.push(name);
+                        format!("tag 0x{:03x} ({})", t, name)
+                    }
+                    None => "tag ?".to_string(),
+                };
+                let nb = h.next_word.to_be_bytes();
+                println!(
+                    "  trap {:>2}: code 0x{:04x}  ppcc-rel 0x{:04x}  {}  bytes 7F 80 00 08  {}  | next 0x{:04x}: {:02X} {:02X} {:02X} {:02X}  {}",
+                    total,
+                    h.code_offset,
+                    h.container_offset,
+                    tag_txt,
+                    trapcheck::decode(trapcheck::TRAP_WORD),
+                    h.container_offset + 4,
+                    nb[0],
+                    nb[1],
+                    nb[2],
+                    nb[3],
+                    h.next_decode
+                );
+            }
+        }
+
+        // Mechanical proof: every hit is the exact trap word (the scan
+        // matches bytes 7F 80 00 08 word-aligned) and it decodes as
+        // tw 0x1c,r0,r0.
+        let decode_ok = trapcheck::decode(trapcheck::TRAP_WORD) == "tw 0x1c,r0,r0";
+        let mut verdict = "PASS";
+        if !decode_ok {
+            verdict = "FAIL";
+            any_fail = true;
+        }
+        if let Some(n) = expect {
+            if total != n {
+                verdict = "FAIL";
+                any_fail = true;
+            }
+        }
+        if unknown_tags > 0 {
+            println!(
+                "  WARNING: {} trap(s) without an identified checkpoint tag",
+                unknown_tags
+            );
+        }
+        let expect_txt = expect
+            .map(|n| format!(" (expected {})", n))
+            .unwrap_or_default();
+        println!(
+            "VERDICT: {} — {} traps{}; all decode tw 0x1c,r0,r0; tags: {}",
+            verdict,
+            total,
+            expect_txt,
+            if tags.is_empty() {
+                "-".to_string()
+            } else {
+                tags.join(" ")
+            }
+        );
+        println!();
+    }
+    if any_fail {
+        ExitCode::from(1)
+    } else if any_parse_error {
+        ExitCode::from(2)
+    } else {
+        ExitCode::from(0)
     }
 }

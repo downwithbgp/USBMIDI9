@@ -171,3 +171,18 @@ proptest! {
         }
     }
 }
+
+// Property: the `tw TO,rA,rB` encoder/decoder round-trips for every TO
+// and register, and the MacsBug trap word is exactly tw 0x1C, r0, r0.
+proptest! {
+    #[test]
+    fn tw_encode_decode_roundtrip(to in 0u32..32, ra in 0u32..32, rb in 0u32..32) {
+        let w = pefcheck::trapcheck::encode_tw(to, ra, rb);
+        let d = pefcheck::trapcheck::decode(w);
+        assert_eq!(d, format!("tw 0x{:x},r{},r{}", to, ra, rb));
+        // The trap word is the TO=0x1C (LT|GT|EQ), r0, r0 case.
+        if to == 0x1C && ra == 0 && rb == 0 {
+            assert_eq!(w, 0x7F_80_00_08);
+        }
+    }
+}

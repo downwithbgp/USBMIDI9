@@ -286,15 +286,34 @@ static void oms_usb_notify(void *pbv)
 /* --- omdvInit / omdvDispose ------------------------------------------ */
 
 #ifdef USBMIDI9_OMS_TRACE_SEARCH
-/* Forward declarations: the trace helpers are defined below (after
- * oms_dispose) but are referenced by oms_init/oms_add_devices which
- * precede them. Guard-scoped; absent in production. */
+/* Forward declaration: the breadcrumb helper is defined below (after
+ * oms_dispose) but referenced by oms_init/oms_add_devices which precede
+ * it. Guard-scoped; absent in production. */
 static void oms_crumb(unsigned long tag, unsigned long a, unsigned long b,
                       unsigned long c);
-static void oms_tr_reset(void);
-static void oms_tr_cat(const char *s);
-static void oms_tr_hex(unsigned long v, unsigned width);
-static void oms_tr_break(void);
+
+/* One native PowerPC instruction word: the MacsBug low-level debugger
+ * trap kPowerPCLowLevelDebuggerTrap = 0x7F800008 ("tw LT|GT|EQ,r0,r0";
+ * AppleCare MacsBug 6.5.3 Read Me). It stops in arbitrary PPC locations
+ * without making the cross-TOC call to the high-level Debugger
+ * implementation; MacsBug stops on the instruction following the trap
+ * and does not modify registers. Emitted INLINE at every checkpoint so
+ * the instruction after the trap is the checkpoint's own continuation.
+ * On the G4 (CodeWarrior Pro 4 PPC) it is the raw "tw TO,rA,rB" form
+ * with TO=0x1C, r0, r0 (if the CW4 assembler rejects the raw TO form,
+ * use "tw 28, r0, r0" — identical encoding). On the Linux host this
+ * expands to an assembler .byte of the identical four bytes so `make
+ * check-trace` can prove the emitted opcode (literal run 7F 80 00 08)
+ * in the generated object; that path is never executed (host test
+ * binaries do not define the guard). Any other compiler must fail
+ * loudly rather than silently emit a non-trap. */
+#if defined(__MWERKS__) && defined(powerc)
+#define OMS_TRAP() asm { tw 0x1C, r0, r0 }
+#elif defined(__GNUC__)
+#define OMS_TRAP() __asm__ volatile (".byte 0x7F, 0x80, 0x00, 0x08")
+#else
+#error "USBMIDI9_OMS_TRACE_SEARCH: define OMS_TRAP for this compiler"
+#endif
 #endif
 static OSErr oms_init(OMSFile *file)
 {
@@ -302,10 +321,7 @@ static OSErr oms_init(OMSFile *file)
     /* I0: omdvInit / oms_init entry. par1 is the OMSFile * (unused by
      * the driver); record it to confirm what OMS passes. */
     oms_crumb(0x100u, (unsigned long)file, 0u, 0u);
-    oms_tr_reset();
-    oms_tr_cat("I0 omdvInit file=");
-    oms_tr_hex((unsigned long)file, 8);
-    oms_tr_break();
+    OMS_TRAP();
 #endif
     (void)file;                         /* driver location; not needed */
 
@@ -313,12 +329,7 @@ static OSErr oms_init(OMSFile *file)
     /* I1: before re-entry cleanup / state zeroing. */
     oms_crumb(0x101u, (unsigned long)g_oms.notifierInstalled,
               (unsigned long)g_oms.sendUpp, 0u);
-    oms_tr_reset();
-    oms_tr_cat("I1 notifInst=");
-    oms_tr_hex((unsigned long)g_oms.notifierInstalled, 1);
-    oms_tr_cat(" sendUpp=");
-    oms_tr_hex((unsigned long)g_oms.sendUpp, 8);
-    oms_tr_break();
+    OMS_TRAP();
 #endif
 
     /* Re-entry guard: a second init must remove the first notification
@@ -338,9 +349,7 @@ static OSErr oms_init(OMSFile *file)
 #ifdef USBMIDI9_OMS_TRACE_SEARCH
     /* I2: after zeroing, before the send-proc RoutineDescriptor build. */
     oms_crumb(0x102u, 0u, 0u, 0u);
-    oms_tr_reset();
-    oms_tr_cat("I2 zeroed before sendUpp build");
-    oms_tr_break();
+    OMS_TRAP();
 #endif
 
     /* PPC: build the send-proc RoutineDescriptor once per init
@@ -356,12 +365,9 @@ static OSErr oms_init(OMSFile *file)
 
 #ifdef USBMIDI9_OMS_TRACE_SEARCH
     /* I3: send-proc RoutineDescriptor built; before notification
-     * install. Print the UPP for inspection. */
+     * install. */
     oms_crumb(0x103u, (unsigned long)g_oms.sendUpp, 0u, 0u);
-    oms_tr_reset();
-    oms_tr_cat("I3 sendUpp=");
-    oms_tr_hex((unsigned long)g_oms.sendUpp, 8);
-    oms_tr_break();
+    OMS_TRAP();
 #endif
 
     /* Install the device notification first: the USB Manager may call
@@ -392,16 +398,10 @@ static OSErr oms_init(OMSFile *file)
         g_oms.notifierInstalled = 1u;
     }
 #ifdef USBMIDI9_OMS_TRACE_SEARCH
-    /* I4: after notification install. Print the result + whether the
-     * notifier is recorded as installed. */
+    /* I4: after notification install. */
     oms_crumb(0x104u, (unsigned long)g_oms.notifPb.result,
               (unsigned long)g_oms.notifierInstalled, 0u);
-    oms_tr_reset();
-    oms_tr_cat("I4 notifResult=");
-    oms_tr_hex((unsigned long)g_oms.notifPb.result, 8);
-    oms_tr_cat(" installed=");
-    oms_tr_hex((unsigned long)g_oms.notifierInstalled, 1);
-    oms_tr_break();
+    OMS_TRAP();
 #endif
     /* No hard failure when no device is attached: the driver must
      * survive device absence to support hot-plug (SampleCell's omdvInit
@@ -409,16 +409,10 @@ static OSErr oms_init(OMSFile *file)
      * error is an OMSVersion() < 2.0 check, not hardware presence). */
     (void)oms_locate_dispatch();
 #ifdef USBMIDI9_OMS_TRACE_SEARCH
-    /* I5: after dispatch lookup/binding. Print the cached table address
-     * (0 if not found) and any callback-registration flag. */
+    /* I5: after dispatch lookup/binding. */
     oms_crumb(0x105u, (unsigned long)g_oms.table,
               (unsigned long)g_oms.callbackRegistered, 0u);
-    oms_tr_reset();
-    oms_tr_cat("I5 table=");
-    oms_tr_hex((unsigned long)g_oms.table, 8);
-    oms_tr_cat(" cbReg=");
-    oms_tr_hex((unsigned long)g_oms.callbackRegistered, 1);
-    oms_tr_break();
+    OMS_TRAP();
 #endif
 
     /* PPC: resolve the 68K OMSReceivedFromPort routine at every
@@ -439,9 +433,7 @@ static OSErr oms_init(OMSFile *file)
     /* I6: before LinkToOMSGlue / OMSGetCallAddress (68K RX routine
      * resolution). */
     oms_crumb(0x106u, 0u, 0u, 0u);
-    oms_tr_reset();
-    oms_tr_cat("I6 before LinkToOMSGlue");
-    oms_tr_break();
+    OMS_TRAP();
 #endif
     g_oms.rxRoutine = 0L;
     if (LinkToOMSGlue() == noErr) {
@@ -449,13 +441,9 @@ static OSErr oms_init(OMSFile *file)
     }
 #endif
 #ifdef USBMIDI9_OMS_TRACE_SEARCH
-    /* IR: omdvInit / oms_init returning. Print the (always 0) return
-     * value and the resolved 68K OMSReceivedFromPort address. */
+    /* IR: omdvInit / oms_init returning. */
     oms_crumb(0x1F0u, (unsigned long)g_oms.rxRoutine, 0u, 0u);
-    oms_tr_reset();
-    oms_tr_cat("IR omdvInit ret=0 rxRoutine=");
-    oms_tr_hex((unsigned long)g_oms.rxRoutine, 8);
-    oms_tr_break();
+    OMS_TRAP();
 #endif
     return 0;
 }
@@ -497,49 +485,57 @@ static OSErr oms_dispose(void)
  * and nothing else. With the guard OFF none of this compiles and the
  * driver is byte-for-byte the production build.
  *
- * Intentional DebugStr breaks localize the crash to one of the segments
- * below (per Search):
- *   E0 PPC main entry                 -> msg, par1, par2 (before handler)
- *   I0 omdvInit/oms_init entry        -> (par1 = OMSFile*, unused)
- *   I1..In around material omdvInit ops (re-entry cleanup, zeroing,
+ * Each checkpoint below (per Search) records into a fixed-size volatile
+ * breadcrumb ring FIRST, then emits ONE native PowerPC instruction — the
+ * MacsBug low-level debugger trap:
+ *
+ *   kPowerPCLowLevelDebuggerTrap = 0x7F800008   ("tw LT|GT|EQ,r0,r0",
+ *   AppleCare MacsBug 6.5.3 Read Me)
+ *
+ * The trap is specifically intended to stop in arbitrary PPC locations
+ * WITHOUT making the cross-TOC Mixed Mode call to the high-level
+ * Debugger implementation; MacsBug stops on the instruction following
+ * the trap and does not modify registers. It is controlled by DX
+ * (MacsBug: DX ON; type G to continue from each intentional break).
+ * Because the trap preserves registers, if the real crash occurs
+ * between two checkpoints the previous stop still gives trustworthy
+ * live PPC state.
+ *
+ * Checkpoints (tag = breadcrumb tag; identify the stop from the
+ * 'PPCC ...'+offset on screen, see docs/g4-handoff.md):
+ *   E0 PPC main entry                 -> tag 0xE0,  msg, par1, par2
+ *   I0 omdvInit/oms_init entry        -> tag 0x100, par1 (OMSFile*, unused)
+ *   I1..I6 around material omdvInit ops (re-entry cleanup, zeroing,
  *        sendUpp build, notification install, dispatch lookup/binding,
- *        LinkToOMSGlue + OMSGetCallAddress)
- *   IR omdvInit return                -> return value
- *   T0 omdvAddDevices entry           -> msg, par1, par2
- *   T1 after dispatch binding         -> dispatch table non-null? + addr
- *   T2 after enumerate/getInfo        -> interface count, selected index
- *   T3 before CallOMSDvrAdd1DevProc1  -> UPP addr, &dev, sizeof(dev),
- *                                        whichOut/ownerDriver/uniqueID/
- *                                        deviceSize/nOutputPorts/
+ *        LinkToOMSGlue + OMSGetCallAddress)  -> tags 0x101..0x106
+ *   IR omdvInit return                -> tag 0x1F0, rxRoutine
+ *   T0 omdvAddDevices entry           -> tag 0x200, msg, par1, par2
+ *   T1 after dispatch binding         -> tag 0x201, table null? + addr
+ *   T2 after enumerate/getInfo        -> tag 0x202, interface count, index
+ *   T3 before CallOMSDvrAdd1DevProc1  -> tag 0x203, UPP addr, &dev,
+ *                                        sizeof(dev), whichOut/ownerDriver/
+ *                                        uniqueID/deviceSize/nOutputPorts/
  *                                        midiChannels/iconID
- *   T4 after  CallOMSDvrAdd1DevProc1  -> returned OMSDeviceH (stored,
- *                                        NOT discarded, in this build)
- *   T5 before omdvAddDevices returns  -> return value
+ *   T4 after  CallOMSDvrAdd1DevProc1  -> tag 0x204, returned OMSDeviceH
+ *                                        (stored, NOT discarded, in this
+ *                                        build)
+ *   T5 before omdvAddDevices returns  -> tag 0x205, return value
  *
- * Every checkpoint also records into a fixed-size volatile breadcrumb
- * array BEFORE calling DebugStr, so evidence survives even if a
- * debugger break misbehaves. The crumbs are allocation-free, MSL-free,
- * and (like all of this block) absent when the guard is off.
+ * The breadcrumb ring is fixed-size (32 slots), allocation-free,
+ * MSL-free and volatile, so the most recent ~32 {tag,a,b,c} records
+ * survive even if a debugger break misbehaves; read them in MacsBug
+ * with 'D <addr>'. The crumbs are absent when the guard is off.
  *
- * DebugStr takes a Pascal string (length byte + chars). We build one in
- * a fixed buffer with a tiny hex formatter; no sprintf/MSL is used.
- * DebugStr is declared in the real OSUtils.h; the host-check stub omits
- * it, so declare it here (identical signature, harmless duplicate) so
- * the guarded path also compiles under host-check for static review.
+ * IMPORTANT: DebugStr did NOT cause the original production crash — it
+ * only invalidated the DebugStr-based instrumentation. This build
+ * removes DebugStr entirely: its Mixed Mode cross-TOC call perturbs the
+ * very state being localized, while the low-level trap preserves it.
  */
-#if defined(USBMIDI9_HOST_CHECK_OSUTILS_H)
-/* host-check OSUtils.h stub omits DebugStr; declare it so the guarded
- * trace path compiles here for static review. On the real CodeWarrior
- * build OSUtils.h provides the real prototype. */
-void DebugStr(const unsigned char *msg);
-#else
-#include <OSUtils.h>
-#endif
 
 /* Fixed-size, allocation-free, MSL-free volatile breadcrumb log. Each
- * checkpoint writes {tag, a, b, c} before its DebugStr break. oms_crumb_
- * wraps around a fixed 32-slot ring so the most recent ~32 checkpoints
- * are always visible in MacsBug via 'D <addr>'. */
+ * checkpoint writes {tag, a, b, c} before its trap (OMS_TRAP above).
+ * oms_crumb_ wraps around a fixed 32-slot ring so the most recent ~32
+ * checkpoints are always visible in MacsBug via 'D <addr>'. */
 #define OMS_TR_CRUMBS 32
 struct oms_crumb {
     unsigned long tag;                  /* e.g. 0xE0, 0x100..0x1F0, 0x200.. */
@@ -559,41 +555,6 @@ static void oms_crumb(unsigned long tag, unsigned long a,
     oms_crumbs[w].b = b;
     oms_crumbs[w].c = c;
     oms_crumb_wr = w + 1u;
-}
-
-static unsigned char oms_tr_buf[256];
-
-static void oms_tr_reset(void) { oms_tr_buf[0] = 0u; }
-
-/* Append a NUL-terminated literal to the Pascal-string buffer. */
-static void oms_tr_cat(const char *s)
-{
-    unsigned n = oms_tr_buf[0];
-    while (*s != '\0' && n < 254u) {
-        oms_tr_buf[++n] = (unsigned char)*s;
-        s++;
-    }
-    oms_tr_buf[0] = (unsigned char)n;
-}
-
-/* Append `width` uppercase hex digits of `v` (width <= 8). */
-static void oms_tr_hex(unsigned long v, unsigned width)
-{
-    unsigned n = oms_tr_buf[0];
-    unsigned i;
-    for (i = 0u; i < width && n < 254u; i++) {
-        unsigned shift = (width - 1u - i) * 4u;
-        unsigned d = (unsigned)((v >> shift) & 0x0Fu);
-        oms_tr_buf[++n] = (unsigned char)(d < 10u ? '0' + d : 'A' + (d - 10u));
-    }
-    oms_tr_buf[0] = (unsigned char)n;
-}
-
-/* Enter the debugger with the accumulated message (MacsBug: type G to
- * continue from each intentional break). */
-static void oms_tr_break(void)
-{
-    DebugStr(oms_tr_buf);
 }
 #endif /* USBMIDI9_OMS_TRACE_SEARCH */
 
@@ -622,12 +583,7 @@ static OSErr oms_add_devices(OMSDvrAdd1DevProc1UPP add1Device)
     /* T1: after dispatch binding, immediately before enumeration. */
     oms_crumb(0x201u, (unsigned long)(g_oms.table != NULL),
               (unsigned long)g_oms.table, 0u);
-    oms_tr_reset();
-    oms_tr_cat("T1 tableNull=");
-    oms_tr_hex((unsigned long)(g_oms.table != NULL), 1);
-    oms_tr_cat(" table=");
-    oms_tr_hex((unsigned long)g_oms.table, 8);
-    oms_tr_break();
+    OMS_TRAP();
 #endif
     /* Re-register the push hook: interfaces may have appeared since the
      * last registration (each new interface starts with a NULL hook). */
@@ -651,12 +607,7 @@ static OSErr oms_add_devices(OMSDvrAdd1DevProc1UPP add1Device)
         /* T2: after enumerate/getInfo, before constructing/registering
          * the OMSDevice. */
         oms_crumb(0x202u, (unsigned long)count, (unsigned long)i, 0u);
-        oms_tr_reset();
-        oms_tr_cat("T2 count=");
-        oms_tr_hex((unsigned long)count, 4);
-        oms_tr_cat(" i=");
-        oms_tr_hex((unsigned long)i, 4);
-        oms_tr_break();
+        OMS_TRAP();
 #endif
 
         oms_zero(&dev, sizeof(dev));
@@ -693,37 +644,13 @@ static OSErr oms_add_devices(OMSDvrAdd1DevProc1UPP add1Device)
             oms_crumb(0x203u, (unsigned long)add1Device,
                       (unsigned long)(unsigned char *)&dev,
                       (unsigned long)sizeof(dev));
-            oms_tr_reset();
-            oms_tr_cat("T3 UPP=");
-            oms_tr_hex((unsigned long)add1Device, 8);
-            oms_tr_cat(" dev=");
-            oms_tr_hex((unsigned long)(unsigned char *)&dev, 8);
-            oms_tr_cat(" sz=");
-            oms_tr_hex((unsigned long)sizeof(dev), 4);
-            oms_tr_cat(" wo=");
-            oms_tr_hex((unsigned long)(unsigned short)dev.whichOut, 4);
-            oms_tr_cat(" od=");
-            oms_tr_hex((unsigned long)dev.ownerDriver, 8);
-            oms_tr_cat(" uid=");
-            oms_tr_hex((unsigned long)dev.uniqueID, 4);
-            oms_tr_cat(" dsz=");
-            oms_tr_hex((unsigned long)(unsigned short)dev.deviceSize, 4);
-            oms_tr_cat(" np=");
-            oms_tr_hex((unsigned long)(unsigned short)dev.nOutputPorts, 4);
-            oms_tr_cat(" mc=");
-            oms_tr_hex((unsigned long)(unsigned short)dev.midiChannels, 4);
-            oms_tr_cat(" ic=");
-            oms_tr_hex((unsigned long)(unsigned short)dev.iconID, 4);
-            oms_tr_break();
+            OMS_TRAP();
             /* T4: the returned OMSDeviceH is stored (not discarded) so
              * Vadim can DM <addr> 40 after this break. */
             added = CallOMSDvrAdd1DevProc1(add1Device, &dev,
                                            (short)sizeof(dev));
             oms_crumb(0x204u, (unsigned long)added, 0u, 0u);
-            oms_tr_reset();
-            oms_tr_cat("T4 devh=");
-            oms_tr_hex((unsigned long)added, 8);
-            oms_tr_break();
+            OMS_TRAP();
         }
 #else
         (void)CallOMSDvrAdd1DevProc1(add1Device, &dev,
@@ -733,9 +660,7 @@ static OSErr oms_add_devices(OMSDvrAdd1DevProc1UPP add1Device)
 #ifdef USBMIDI9_OMS_TRACE_SEARCH
     /* T5: immediately before omdvAddDevices returns (no error). */
     oms_crumb(0x205u, 0u, 0u, 0u);
-    oms_tr_reset();
-    oms_tr_cat("T5 ret=0");
-    oms_tr_break();
+    OMS_TRAP();
 #endif
     return 0;
 }
@@ -857,14 +782,7 @@ long oms_handle_message(short msg, long par1, long par2)
         /* T0: entry to production omdvAddDevices. */
         oms_crumb(0x200u, (unsigned long)(unsigned short)msg,
                   (unsigned long)par1, (unsigned long)par2);
-        oms_tr_reset();
-        oms_tr_cat("T0 msg=");
-        oms_tr_hex((unsigned long)(unsigned short)msg, 4);
-        oms_tr_cat(" par1=");
-        oms_tr_hex((unsigned long)par1, 8);
-        oms_tr_cat(" par2=");
-        oms_tr_hex((unsigned long)par2, 8);
-        oms_tr_break();
+        OMS_TRAP();
 #endif
         /* compat level 1: par1 = OMSDvrAdd1DevProc1UPP, par2 =
          * OMSAddDevParams * (portsUsed/baudRatePerPort are serial-port
@@ -936,17 +854,10 @@ OMSCALLBACK(long) main(short msg, long par1, long par2)
 #ifdef USBMIDI9_OMS_TRACE_SEARCH
     /* E0: entry to PPC main, before oms_handle_message. Record which
      * message(s) OMS actually sends during Search (do not assume the
-     * order) and print the call arguments. */
+     * order) and the call arguments. */
     oms_crumb(0xE0u, (unsigned long)(unsigned short)msg,
               (unsigned long)par1, (unsigned long)par2);
-    oms_tr_reset();
-    oms_tr_cat("E0 msg=");
-    oms_tr_hex((unsigned long)(unsigned short)msg, 4);
-    oms_tr_cat(" par1=");
-    oms_tr_hex((unsigned long)par1, 8);
-    oms_tr_cat(" par2=");
-    oms_tr_hex((unsigned long)par2, 8);
-    oms_tr_break();
+    OMS_TRAP();
 #endif
     return oms_handle_message(msg, par1, par2);
 }

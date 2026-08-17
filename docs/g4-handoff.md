@@ -480,6 +480,111 @@ If the driver is not discovered by OMS Setup, capture: the driver file's
 type/creator (Get Info), the resource list (ResEdit), and whether OMS
 Setup's search sees anything at all. Report back with those.
 
+## OMS Search trace build — MacsBug low-level trap (USBMIDI9_OMS_TRACE_SEARCH)
+
+One-run G4/MacsBug localization of the OMS Search-time Address Error
+(PC=FFFFFFF3). The instrumentation is the **MacsBug low-level native
+PowerPC debugger trap** (AppleCare MacsBug 6.5.3 Read Me):
+
+```c
+#define kPowerPCLowLevelDebuggerTrap 0x7F800008
+// tw LT|GT|EQ,r0,r0
+```
+
+It is specifically intended to stop in arbitrary PPC locations **without
+making the cross-TOC call to the high-level Debugger implementation**;
+MacsBug stops on the instruction following the trap and does not modify
+registers. It is controlled by DX. The previous DebugStr-based trace
+build is gone — **DebugStr did NOT cause the original production crash**;
+it only invalidated the DebugStr-based instrumentation. The low-level
+trap preserves registers, so if the real crash occurs between two
+checkpoints, the previous stop still gives trustworthy live PPC state.
+
+Source: `oms/oms_driver.c`, `USBMIDI9_OMS_TRACE_SEARCH` guard. Each of
+the 15 checkpoints writes its breadcrumb first, then emits exactly one
+native PPC instruction word `0x7F800008` (CW Pro 4 inline asm
+`asm { tw 0x1C, r0, r0 }`; if the CW4 assembler rejects the raw TO form,
+use `tw 28, r0, r0` — identical encoding). With the guard OFF the driver
+is byte-for-byte the production build (guard-off object md5-identical to
+HEAD, verified on the host).
+
+Checkpoints (tag = breadcrumb tag; `oms_crumbs[]` is the 32-slot
+volatile ring, `D <addr>` in MacsBug — locate the address from the
+trap's preceding `stw` sequence or the linker map):
+
+| checkpoint | tag | crumb values |
+|---|---|---|
+| E0 PPC main entry | 0xE0 | msg, par1, par2 |
+| I0 omdvInit/oms_init entry | 0x100 | par1 (OMSFile*, unused) |
+| I1 before re-entry cleanup | 0x101 | notifierInstalled, sendUpp |
+| I2 after zeroing | 0x102 | — |
+| I3 sendUpp built | 0x103 | sendUpp |
+| I4 after notification install | 0x104 | notif result, installed |
+| I5 after dispatch lookup | 0x105 | table, callbackRegistered |
+| I6 before LinkToOMSGlue | 0x106 | — |
+| IR omdvInit return | 0x1F0 | rxRoutine |
+| T0 omdvAddDevices entry | 0x200 | msg, par1, par2 |
+| T1 after dispatch binding | 0x201 | table null?, table |
+| T2 after enumerate/getInfo | 0x202 | count, i |
+| T3 before CallOMSDvrAdd1DevProc1 | 0x203 | UPP, &dev, sizeof(dev) |
+| T4 after CallOMSDvrAdd1DevProc1 | 0x204 | returned OMSDeviceH (stored) |
+| T5 before omdvAddDevices returns | 0x205 | — |
+
+### Build (G4)
+
+1. Target A (OMS PEF target) with the **PPC Linker → Entry points →
+   Main = `main`** setting KEPT (do not blank it).
+2. Add **`USBMIDI9_OMS_TRACE_SEARCH`** to the target's Preprocessor
+   settings ONLY (never a shared prefix file — it must not leak into
+   the production build). Do NOT define
+   `USBMIDI9_OMS_DIAG_MINIMAL_ENTRY` in this build.
+3. Make. The output PEF is `USBMIDI9:USBMIDI9_OMS` (Target A), which
+   `oms/ppcc.r` embeds as `'PPCC'` 1 in the driver file.
+
+### Post-build mechanical proof (before runtime)
+
+On the host (or G4), run the trap checker on the built PEF:
+
+```
+pefcheck --trapcheck --expect=15 <USBMIDI9_OMS PEF>
+```
+
+Expected: **VERDICT: PASS — 15 traps**, every trap decoding as
+`tw 0x1c,r0,r0` with the literal bytes `7F 80 00 08`, every checkpoint
+tag identified (E0 I0..I6 IR T0..T5), and the decoded next instruction
+listed. The tool reports for each trap the code offset and the
+PPCC-relative offset (= container offset: the `'PPCC'` 1 resource data
+IS the raw PEF container, no length prefix — `Joy!peffpwpc` at byte 0).
+The runtime identification table is filled from that output:
+
+| checkpoint | code offset | PPCC-relative offset | trap bytes | next instruction |
+|---|---|---|---|---|
+| E0 | 0x____ | 0x____ | 7F 80 00 08 | <decode> |
+| I0..I6, IR, T0..T5 | ... | ... | 7F 80 00 08 | ... |
+
+Do NOT use absolute runtime addresses — the fragment moves between
+boots; MacsBug's displayed 'PPCC ...'+offset is the PPCC-relative
+offset above.
+
+Also confirm the production PEF reports **0 traps**
+(`pefcheck --trapcheck <production PEF>` → VERDICT PASS, 0 traps), and
+that no DebugStr / Mixed Mode trace call remains in the trace build
+(the whole trace path now emits only the native trap).
+
+### Runtime (G4, MacsBug)
+
+1. **DX ON** (MacsBug command `DX` toggles the low-level trap flag ON).
+2. Launch OMS Setup → **Search once**.
+3. Each native low-level trap stops in MacsBug at the instruction after
+   `0x7F800008`. Record the **PPCC-relative offset / checkpoint** from
+   the 'PPCC ...'+offset shown on screen, and identify the checkpoint
+   from the table above (or `DM <crumbs>` for the tag).
+4. **G** — continue. Keep going until either the next checkpoint or the
+   genuine **FFFFFFF3** crash.
+5. Because the low-level trap preserves registers, the last stop before
+   a crash between checkpoints gives trustworthy live PPC state — dump
+   registers (e.g. `R`) at that stop.
+
 ## Files to refresh on the G4 for the EXISTING targets
 
 The USBMIDI9 class driver MUST be rebuilt before the OMS driver is

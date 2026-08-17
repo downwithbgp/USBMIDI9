@@ -31,7 +31,7 @@ SAN_CORE_OBJS := $(CORE_SRCS:%.c=$(SAN)/%.o)
 SAN_RING_OBJS := $(RING_SRCS:%.c=$(SAN)/%.o)
 SAN_TEST_OBJS := $(TEST_SRCS:%.c=$(SAN)/%.o)
 
-.PHONY: all test test-sanitize check-classic clean
+.PHONY: all test test-sanitize check-classic check-trace clean
 
 all: $(BUILD)/libusbmidi9.a $(BUILD)/test_usbmidi9
 
@@ -141,6 +141,27 @@ check-classic:
 	# (the G4 build exports the real `main` via USBMIDI9_OMS.exp).
 	$(CC) $(CLASSIC_CFLAGS) -Dmain=oms_driver_entry -c -o $(BUILD)/oms_driver.o oms/oms_driver.c
 	@echo "check-classic: Classic sources compile against stub headers"
+
+# The USBMIDI9_OMS_TRACE_SEARCH diagnostic build compiles the OMS driver
+# with the MacsBug low-level debugger trap (kPowerPCLowLevelDebuggerTrap
+# = 0x7F800008, "tw LT|GT|EQ,r0,r0") at all 15 checkpoints (E0, I0-I6,
+# IR, T0-T5). On the host OMS_TRAP() expands to `.byte 0x7F,0x80,0x00,
+# 0x08` (GCC arm; never executed — test binaries do not define the
+# guard), so the object's .text provably contains the literal trap bytes.
+# -Dpowerc is in CLASSIC_CFLAGS (the I6 site is powerc-gated); __MWERKS__
+# is undefined on host cc so the CW arm is never selected and all 15
+# sites carry the .byte arm.
+check-trace:
+	@mkdir -p $(BUILD)
+	$(CC) $(CLASSIC_CFLAGS) -DUSBMIDI9_OMS_TRACE_SEARCH -Dmain=oms_driver_entry \
+	    -c -o $(BUILD)/oms_driver_trace.o oms/oms_driver.c
+	objcopy --dump-section .text=$(BUILD)/oms_driver_trace.text $(BUILD)/oms_driver_trace.o
+	@count=$$(od -An -tx1 -v $(BUILD)/oms_driver_trace.text | tr -d ' \n' | grep -o '7f800008' | wc -l); \
+	if [ "$$count" -ne 15 ]; then \
+	    echo "check-trace: FAIL - found $$count trap words in .text, expected 15"; \
+	    exit 1; \
+	fi; \
+	echo "check-trace: PASS - exactly 15 x 7F 80 00 08 in .text of the trace-build object"
 
 clean:
 	rm -rf $(BUILD) $(SAN)

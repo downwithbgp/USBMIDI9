@@ -3,4 +3,5 @@
 pub mod pef;
 pub mod reloc;
 pub mod sha256;
+pub mod trapcheck;
 pub mod validate;
