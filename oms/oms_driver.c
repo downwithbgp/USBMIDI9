@@ -397,6 +397,79 @@ static OSErr oms_dispose(void)
     return 0;
 }
 
+#ifdef USBMIDI9_OMS_TRACE_SEARCH
+/* --- Search localization trace (USBMIDI9_OMS_TRACE_SEARCH only) -------
+ *
+ * Compile-time guard for a one-run G4/MacsBug localization of the OMS
+ * Search-time Address Error (PC=FFFFFFF3). Enabled with
+ *   -DUSBMIDI9_OMS_TRACE_SEARCH
+ * and nothing else. With the guard OFF none of this compiles and the
+ * driver is byte-for-byte the production build.
+ *
+ * Intentional DebugStr breaks localize the crash to one of the segments
+ * below (per Search):
+ *   T0 omdvAddDevices entry            -> msg, par1, par2
+ *   T1 after dispatch binding          -> dispatch table non-null? + addr
+ *   T2 after enumerate/getInfo         -> interface count, selected index
+ *   T3 before CallOMSDvrAdd1DevProc1   -> UPP addr, &dev, sizeof(dev),
+ *                                         whichOut/ownerDriver/uniqueID/
+ *                                         deviceSize/nOutputPorts/
+ *                                         midiChannels/iconID
+ *   T4 after  CallOMSDvrAdd1DevProc1   -> returned OMSDeviceH (stored,
+ *                                         NOT discarded, in this build)
+ *   T5 before omdvAddDevices returns   -> return value
+ *
+ * DebugStr takes a Pascal string (length byte + chars). We build one in
+ * a fixed buffer with a tiny hex formatter; no sprintf/MSL is used.
+ * DebugStr is declared in the real OSUtils.h; the host-check stub omits
+ * it, so declare it here (identical signature, harmless duplicate) so
+ * the guarded path also compiles under host-check for static review.
+ */
+#if defined(USBMIDI9_HOST_CHECK_OSUTILS_H)
+/* host-check OSUtils.h stub omits DebugStr; declare it so the guarded
+ * trace path compiles here for static review. On the real CodeWarrior
+ * build OSUtils.h provides the real prototype. */
+void DebugStr(const unsigned char *msg);
+#else
+#include <OSUtils.h>
+#endif
+
+static unsigned char oms_tr_buf[256];
+
+static void oms_tr_reset(void) { oms_tr_buf[0] = 0u; }
+
+/* Append a NUL-terminated literal to the Pascal-string buffer. */
+static void oms_tr_cat(const char *s)
+{
+    unsigned n = oms_tr_buf[0];
+    while (*s != '\0' && n < 254u) {
+        oms_tr_buf[++n] = (unsigned char)*s;
+        s++;
+    }
+    oms_tr_buf[0] = (unsigned char)n;
+}
+
+/* Append `width` uppercase hex digits of `v` (width <= 8). */
+static void oms_tr_hex(unsigned long v, unsigned width)
+{
+    unsigned n = oms_tr_buf[0];
+    unsigned i;
+    for (i = 0u; i < width && n < 254u; i++) {
+        unsigned shift = (width - 1u - i) * 4u;
+        unsigned d = (unsigned)((v >> shift) & 0x0Fu);
+        oms_tr_buf[++n] = (unsigned char)(d < 10u ? '0' + d : 'A' + (d - 10u));
+    }
+    oms_tr_buf[0] = (unsigned char)n;
+}
+
+/* Enter the debugger with the accumulated message (MacsBug: type G to
+ * continue from each intentional break). */
+static void oms_tr_break(void)
+{
+    DebugStr(oms_tr_buf);
+}
+#endif /* USBMIDI9_OMS_TRACE_SEARCH */
+
 /* --- omdvAddDevices --------------------------------------------------- */
 
 /* Register one OMS device per attached USBMIDI9 interface via the
@@ -418,6 +491,15 @@ static OSErr oms_add_devices(OMSDvrAdd1DevProc1UPP add1Device)
     if (err != noErr) {
         return 0;                       /* no interfaces to add */
     }
+#ifdef USBMIDI9_OMS_TRACE_SEARCH
+    /* T1: after dispatch binding, immediately before enumeration. */
+    oms_tr_reset();
+    oms_tr_cat("T1 tableNull=");
+    oms_tr_hex((unsigned long)(g_oms.table != NULL), 1);
+    oms_tr_cat(" table=");
+    oms_tr_hex((unsigned long)g_oms.table, 8);
+    oms_tr_break();
+#endif
     /* Re-register the push hook: interfaces may have appeared since the
      * last registration (each new interface starts with a NULL hook). */
     oms_register_callbacks(g_oms.table);
@@ -435,6 +517,17 @@ static OSErr oms_add_devices(OMSDvrAdd1DevProc1UPP add1Device)
         }
         g_oms.ifaces[i].valid = 1u;
         g_oms.ifaces[i].info = info;
+
+#ifdef USBMIDI9_OMS_TRACE_SEARCH
+        /* T2: after enumerate/getInfo, before constructing/registering
+         * the OMSDevice. */
+        oms_tr_reset();
+        oms_tr_cat("T2 count=");
+        oms_tr_hex((unsigned long)count, 4);
+        oms_tr_cat(" i=");
+        oms_tr_hex((unsigned long)i, 4);
+        oms_tr_break();
+#endif
 
         oms_zero(&dev, sizeof(dev));
         dev.whichOut = (short)(i + 1u);         /* 1-based, unique */
@@ -463,9 +556,52 @@ static OSErr oms_add_devices(OMSDvrAdd1DevProc1UPP add1Device)
          * a DIRECT call would execute the descriptor's bytes as PPC
          * code → Address Error. The OMS spec (omdvAddDevices) and the
          * authentic OMSDrvUPPs.h require CallOMSDvrAdd1DevProc1. */
+#ifdef USBMIDI9_OMS_TRACE_SEARCH
+        {
+            OMSDeviceH added;
+            /* T3: immediately before the trampoline call. */
+            oms_tr_reset();
+            oms_tr_cat("T3 UPP=");
+            oms_tr_hex((unsigned long)add1Device, 8);
+            oms_tr_cat(" dev=");
+            oms_tr_hex((unsigned long)(unsigned char *)&dev, 8);
+            oms_tr_cat(" sz=");
+            oms_tr_hex((unsigned long)sizeof(dev), 4);
+            oms_tr_cat(" wo=");
+            oms_tr_hex((unsigned long)(unsigned short)dev.whichOut, 4);
+            oms_tr_cat(" od=");
+            oms_tr_hex((unsigned long)dev.ownerDriver, 8);
+            oms_tr_cat(" uid=");
+            oms_tr_hex((unsigned long)dev.uniqueID, 4);
+            oms_tr_cat(" dsz=");
+            oms_tr_hex((unsigned long)(unsigned short)dev.deviceSize, 4);
+            oms_tr_cat(" np=");
+            oms_tr_hex((unsigned long)(unsigned short)dev.nOutputPorts, 4);
+            oms_tr_cat(" mc=");
+            oms_tr_hex((unsigned long)(unsigned short)dev.midiChannels, 4);
+            oms_tr_cat(" ic=");
+            oms_tr_hex((unsigned long)(unsigned short)dev.iconID, 4);
+            oms_tr_break();
+            /* T4: the returned OMSDeviceH is stored (not discarded) so
+             * Vadim can DM <addr> 40 after this break. */
+            added = CallOMSDvrAdd1DevProc1(add1Device, &dev,
+                                           (short)sizeof(dev));
+            oms_tr_reset();
+            oms_tr_cat("T4 devh=");
+            oms_tr_hex((unsigned long)added, 8);
+            oms_tr_break();
+        }
+#else
         (void)CallOMSDvrAdd1DevProc1(add1Device, &dev,
                                      (short)sizeof(dev));
+#endif
     }
+#ifdef USBMIDI9_OMS_TRACE_SEARCH
+    /* T5: immediately before omdvAddDevices returns (no error). */
+    oms_tr_reset();
+    oms_tr_cat("T5 ret=0");
+    oms_tr_break();
+#endif
     return 0;
 }
 
@@ -582,6 +718,17 @@ long oms_handle_message(short msg, long par1, long par2)
     case omdvDispose:
         return (long)oms_dispose();
     case omdvAddDevices:
+#ifdef USBMIDI9_OMS_TRACE_SEARCH
+        /* T0: entry to production omdvAddDevices. */
+        oms_tr_reset();
+        oms_tr_cat("T0 msg=");
+        oms_tr_hex((unsigned long)(unsigned short)msg, 4);
+        oms_tr_cat(" par1=");
+        oms_tr_hex((unsigned long)par1, 8);
+        oms_tr_cat(" par2=");
+        oms_tr_hex((unsigned long)par2, 8);
+        oms_tr_break();
+#endif
         /* compat level 1: par1 = OMSDvrAdd1DevProc1UPP, par2 =
          * OMSAddDevParams * (portsUsed/baudRatePerPort are serial-port
          * concepts; we have no serial ports). */
