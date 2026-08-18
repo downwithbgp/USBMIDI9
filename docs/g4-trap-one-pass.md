@@ -129,30 +129,40 @@ prose comment "DebugStr did NOT cause the original production crash").
 The trap is emitted inline: every decoded next instruction is the
 checkpoint's own continuation (li/lwz/bl/addi/or), never a helper `blr`.
 
-| checkpoint | code offset | PPCC-relative offset | trap bytes | next instruction |
+**pefcheck column semantics (audited 2026-08-18):** pefcheck's `ppcc-rel`
+is the container offset of the **trap opcode** itself (the `7F 80 00 08`
+word); its `next 0x____` is `trap + 4` = the instruction after the trap.
+Per the MacsBug 6.5.3 low-level-trap semantics, MacsBug stops **on the
+instruction after the trap**, so the displayed PPCC-relative offset at a
+stop is the **`next` offset (`trap + 4`)**, NOT the trap opcode offset.
+The table below therefore carries both columns; the runtime lookup (Phase
+2c) uses the **MacsBug stop** column.
+
+| checkpoint | code offset | trap PPCC-rel | MacsBug stop PPCC-rel | next instruction |
 |---|---|---|---|---|
-| E0 | 0x1688 | 0x1908 | 7F 80 00 08 | `addi r3,r29,0` |
-| I0 | 0x0d98 | 0x1018 | 7F 80 00 08 | `li r3,257` |
-| I1 | 0x0db0 | 0x1030 | 7F 80 00 08 | `lbz r3,9(r31)` |
-| I2 | 0x0e14 | 0x1094 | 7F 80 00 08 | `lwz r3,-32708(r2)` |
-| I3 | 0x0e44 | 0x10c4 | 7F 80 00 08 | `li r3,36` |
-| I4 | 0x0ee8 | 0x1168 | 7F 80 00 08 | `bl -0x33c` |
-| I5 | 0x0f04 | 0x1184 | 7F 80 00 08 | `li r3,262` |
-| I6 | 0x0f1c | 0x119c | 7F 80 00 08 | `li r3,0` |
-| IR | 0x0f5c | 0x11dc | 7F 80 00 08 | `li r3,0` |
-| T0 | 0x15b0 | 0x1830 | 7F 80 00 08 | `or r31,r3,r31` |
-| T1 | 0x1104 | 0x1384 | 7F 80 00 08 | `lwz r3,0(r30)` |
-| T2 | 0x11f0 | 0x1470 | 7F 80 00 08 | `addi r3,r1,60` |
-| T3 | 0x1278 | 0x14f8 | 7F 80 00 08 | `addi r3,r29,0` |
-| T4 | 0x12ac | 0x152c | 7F 80 00 08 | `addi r31,r31,1` |
-| T5 | 0x12d4 | 0x1554 | 7F 80 00 08 | `li r3,0` |
+| E0 | 0x1688 | 0x1908 | **0x190C** | `addi r3,r29,0` |
+| I0 | 0x0d98 | 0x1018 | **0x101C** | `li r3,257` |
+| I1 | 0x0db0 | 0x1030 | **0x1034** | `lbz r3,9(r31)` |
+| I2 | 0x0e14 | 0x1094 | **0x1098** | `lwz r3,-32708(r2)` |
+| I3 | 0x0e44 | 0x10c4 | **0x10C8** | `li r3,36` |
+| I4 | 0x0ee8 | 0x1168 | **0x116C** | `bl -0x33c` |
+| I5 | 0x0f04 | 0x1184 | **0x1188** | `li r3,262` |
+| I6 | 0x0f1c | 0x119c | **0x11A0** | `li r3,0` |
+| IR | 0x0f5c | 0x11dc | **0x11E0** | `li r3,0` |
+| T0 | 0x15b0 | 0x1830 | **0x1834** | `or r31,r3,r31` |
+| T1 | 0x1104 | 0x1384 | **0x1388** | `lwz r3,0(r30)` |
+| T2 | 0x11f0 | 0x1470 | **0x1474** | `addi r3,r1,60` |
+| T3 | 0x1278 | 0x14f8 | **0x14FC** | `addi r3,r29,0` |
+| T4 | 0x12ac | 0x152c | **0x1530** | `addi r31,r31,1` |
+| T5 | 0x12d4 | 0x1554 | **0x1558** | `li r3,0` |
 
 **Runtime offset note:** the pefcheck scan lists traps in **code-layout**
 offset order (I0…T5,T0,E0), but during a real OMS Search the checkpoints
 fire in **execution** order: **E0 (main entry) first**, then
 I0→I1→…→I6→IR (omdvInit), then T0→T1→…→T5 (omdvAddDevices). Match each
-displayed `+offset` to the name via the lookup; do not expect the offsets
-in ascending order during the run.
+displayed `+offset` (the MacsBug **stop** offset = trap+4) to the name via
+the Phase 2c lookup; do not expect the offsets in ascending order during
+the run.
 
 **Verify exactly 15 × 7F 80 00 08 and NO DebugStr / Mixed Mode trace
 path** in the trace PEF: pefcheck counts the trap words (must be 15), and
@@ -173,14 +183,13 @@ addresses during the run.
 
 Only after Phase 1's PEF passes Gate A. This is the already-proven
 resource assembly (existing `'OMdi'` / `'PPCC'` gates), NOT a new
-mechanism:
+mechanism. **The companion USBMIDI9 class driver / ndrv is UNCHANGED by
+this experiment and is NOT rebuilt or replaced** — it remains the
+known-good dispatch-v0x0002 artifact on the share
+(`USBMIDI9:USBMIDI9:USBMIDI9`, sha `87f39a22…`). Only the OMS driver
+resource file is (re)built here:
 
-1. **Rebuild the USBMIDI9 class driver** first (the driver target from
-   the current tree; the OMS shim requires dispatch table **v0x0002**).
-   Verify the file is `'ndrv'`/`'usbd'` and exports
-   `TheUSBDriverDescription`. Probe regression optional (0x0001 minimum
-   accepts v0x0002) but cheap.
-2. In `USBMIDI9 OMS.µ`, select the **"USBMIDI9 OMS Driver"** target (the
+1. In `USBMIDI9 OMS.µ`, select the **"USBMIDI9 OMS Driver"** target (the
    MacOS Merge / Project Type = **Resource File** target). It compiles
    `oms/oms_driver.r` (`'OMdi'` 128, `'SICN'` 128, `'vers'` 1) and
    `oms/ppcc.r` — the `read 'PPCC' (1) "::USBMIDI9_OMS";` embeds the
@@ -190,22 +199,23 @@ mechanism:
    Type `OMdv`. (The `USBMIDI9:USBMIDI9 OMS Resources:` folder is the Rez
    working dir; `::USBMIDI9_OMS` resolves to the PEF — path already
    validated by prior gates.)
-3. **Make** the resource target → `USBMIDI9 OMS Driver`.
-4. **ResEdit inspection (REQUIRED before install):** exactly
+2. **Make** the resource target → `USBMIDI9 OMS Driver`.
+3. **ResEdit inspection (REQUIRED before install):** exactly
    `OMdi` 128 / `PPCC` 1 / `SICN` 128 / `vers` 1, **no `OMdv`**;
    `OMdi` 128 = `7F 10 00 00 00 00 00 01 00 01 00 00 00 00 00 00` (word
    at +6 = `00 01`); `PPCC` 1 starts `Joy!peffpwpc` (no length prefix),
-   size = the trace PEF size.
-5. **Install** the file into **System Folder:OMS Folder**.
+   size = the trace PEF size (10018 B).
+4. **Install** the file into **System Folder:OMS Folder**.
 
 ### 2b. Runtime script (one run, MacsBug)
 
 ```
 1. INSTALL the OMS driver (step 2a) — copy into System Folder:OMS Folder.
-   REBOOT ONLY IF REQUIRED by what changed:
-     - class driver reinstall with changed exports/layout -> reboot;
-     - otherwise (OMS driver resource refresh only) a reboot is NOT
-       required — just relaunch OMS Setup.
+   REBOOT ONLY IF ACTUALLY REQUIRED: the class driver/ndrv is UNCHANGED
+   (known-good v0x0002 artifact 87f39a22 stays in place), so a resource-
+   only refresh of the OMS driver file normally needs NO reboot — just
+   relaunch OMS Setup. Reboot only if MacsBug/OMS reports stale-driver
+   symptoms after relaunch.
 2. MacsBug:  DX ON          (toggle the low-level native trap flag ON)
 3. Launch OMS Setup -> Search  (once)
 4. Each native low-level trap stops MacsBug on the instruction AFTER
@@ -224,45 +234,46 @@ mechanism:
    report them with the checkpoint name + offset.
 ```
 
-### 2c. Runtime lookup — checkpoint by PPCC-relative offset
+### 2c. Runtime lookup — checkpoint by MacsBug stop PPCC-relative offset
 
 Filled from the actual pefcheck output (Phase 1) so Vadim reads the
 displayed offset and names the checkpoint without computing anything.
-Sort by offset; each line: `+0x____ = E0`, `+0x____ = I0`, …,
+**Use the MacsBug stop offset (`trap + 4`):** MacsBug 6.5.3 stops on
+the instruction after the `0x7F800008` trap, so it displays
+`trap PPCC-rel + 4`, NOT the trap opcode address. Both columns are shown
+for reference; the operative key is the **stop** column.
 
-### Runtime lookup — actual G4 trace PEF (2026-08-18), by PPCC-relative offset
+| MacsBug stop | (trap opcode) | checkpoint | crumb tag | next instruction |
+|---|---|---|---|---|
+| **+0x101C** | +0x1018 | I0 | 0x100 | `li r3,257` |
+| **+0x1034** | +0x1030 | I1 | 0x101 | `lbz r3,9(r31)` |
+| **+0x1098** | +0x1094 | I2 | 0x102 | `lwz r3,-32708(r2)` |
+| **+0x10C8** | +0x10c4 | I3 | 0x103 | `li r3,36` |
+| **+0x116C** | +0x1168 | I4 | 0x104 | `bl -0x33c` |
+| **+0x1188** | +0x1184 | I5 | 0x105 | `li r3,262` |
+| **+0x11A0** | +0x119c | I6 | 0x106 | `li r3,0` |
+| **+0x11E0** | +0x11dc | IR | 0x1F0 | `li r3,0` |
+| **+0x1388** | +0x1384 | T1 | 0x201 | `lwz r3,0(r30)` |
+| **+0x1474** | +0x1470 | T2 | 0x202 | `addi r3,r1,60` |
+| **+0x14FC** | +0x14f8 | T3 | 0x203 | `addi r3,r29,0` |
+| **+0x1530** | +0x152c | T4 | 0x204 | `addi r31,r31,1` |
+| **+0x1558** | +0x1554 | T5 | 0x205 | `li r3,0` |
+| **+0x1834** | +0x1830 | T0 | 0x200 | `or r31,r3,r31` |
+| **+0x190C** | +0x1908 | E0 | 0xE0 | `addi r3,r29,0` |
 
-| offset | checkpoint | crumb tag |
-|---|---|---|
-| +0x1018 | I0 | 0x100 |
-| +0x1030 | I1 | 0x101 |
-| +0x1094 | I2 | 0x102 |
-| +0x10c4 | I3 | 0x103 |
-| +0x1168 | I4 | 0x104 |
-| +0x1184 | I5 | 0x105 |
-| +0x119c | I6 | 0x106 |
-| +0x11dc | IR | 0x1F0 |
-| +0x1384 | T1 | 0x201 |
-| +0x1470 | T2 | 0x202 |
-| +0x14f8 | T3 | 0x203 |
-| +0x152c | T4 | 0x204 |
-| +0x1554 | T5 | 0x205 |
-| +0x1830 | T0 | 0x200 |
-| +0x1908 | E0 | 0xE0 |
-
-Compact one-line key (read it with the run, sorted by offset):
+Compact one-line key (the **stop** offsets MacsBug will display, sorted):
 
 ```
-0x1018=I0  0x1030=I1  0x1094=I2  0x10c4=I3  0x1168=I4  0x1184=I5
-0x119c=I6  0x11dc=IR  0x1384=T1  0x1470=T2  0x14f8=T3  0x152c=T4
-0x1554=T5  0x1830=T0  0x1908=E0
+0x101C=I0  0x1034=I1  0x1098=I2  0x10C8=I3  0x116C=I4  0x1188=I5
+0x11A0=I6  0x11E0=IR  0x1388=T1  0x1474=T2  0x14FC=T3  0x1530=T4
+0x1558=T5  0x1834=T0  0x190C=E0
 ```
 
 **Execution order** (what a real Search will produce, in order):
-`E0 (+0x1908)` → `I0 (+0x1018)` → `I1 (+0x1030)` → `I2 (+0x1094)` →
-`I3 (+0x10c4)` → `I4 (+0x1168)` → `I5 (+0x1184)` → `I6 (+0x119c)` →
-`IR (+0x11dc)` → `T0 (+0x1830)` → `T1 (+0x1384)` → `T2 (+0x1470)` →
-`T3 (+0x14f8)` → `T4 (+0x152c)` → `T5 (+0x1554)`. Match each displayed
+`E0 (+0x190C)` → `I0 (+0x101C)` → `I1 (+0x1034)` → `I2 (+0x1098)` →
+`I3 (+0x10C8)` → `I4 (+0x116C)` → `I5 (+0x1188)` → `I6 (+0x11A0)` →
+`IR (+0x11E0)` → `T0 (+0x1834)` → `T1 (+0x1388)` → `T2 (+0x1474)` →
+`T3 (+0x14FC)` → `T4 (+0x1530)` → `T5 (+0x1558)`. Match each displayed
 `+offset` to the name; the offsets are NOT in ascending order at runtime
 because E0/main is laid out at the end of the code section.
 
