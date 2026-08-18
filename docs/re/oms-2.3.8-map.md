@@ -11,6 +11,34 @@ code blob) and `oms_setup_code1.bin` (sha256 19662c84…, 140038 B).
 Confidence: P = PROVEN (byte/disasm evidence in docs/re or
 docs/oms-ppcc-entry-crash.md), SI = STRONG INFERENCE, H = HYPOTHESIS.
 
+## Coordinate model for PROC 1 runtime mapping
+
+For the extracted artifact used here, `rsrc_list.py` removes the Resource
+Manager's four-byte resource-length prefix and writes the resource body to
+`omslib_proc1.bin`. The body begins at file/resource offset `0x000000` with
+the PROC entry bytes (`60 0A 00 00`) and has no additional `0x0600`-byte
+executable-code prefix. Therefore, for this artifact:
+
+```text
+resource offset       = executable/code offset = PROC-relative offset
+runtime address       = load base + executable/code offset
+```
+
+For the T8/T9 stub:
+
+| field | value | basis |
+|---|---:|---|
+| resource offset | `0x000098BE` | byte sequence `20 1F 70 00 4E 75` in `omslib_proc1.bin` |
+| executable/code offset | `0x000098BE` | no resource/code bias in extracted PROC body |
+| PROC-relative offset | `0x000098BE` | same coordinate for this raw PROC artifact |
+| runtime address | `0x0180267E` | MacsBug T8/T9 transcript |
+| runtime load base | `0x017F8DC0` | `0x0180267E - 0x000098BE` |
+| mapping bias | `0x00000000` | resource offset equals executable offset |
+
+The previously recorded `0x017F87C0` base was an arithmetic/documentation
+error: it is `0x600` below the correct base and would map `0x98BE` to
+`0x0180207E`, not `0x0180267E`. There is no evidence for a `0x600` bias.
+
 ## M1. Driver load path (library, PROVEN — docs/oms-ppcc-entry-crash.md §A/G.1)
 
 | component/resource | offset (file) | proposed name | calling convention | inputs/outputs | evidence | confidence |
@@ -64,8 +92,9 @@ docs/oms-ppcc-entry-crash.md), SI = STRONG INFERENCE, H = HYPOTHESIS.
 | library PROC 1 | 0x98BE | post-callback continuation | 68K | exact bytes `20 1F 70 00 4E 75`; pops a longword into D0, clears D0, RTS | byte match + T8/T9 | P |
 | library PROC 1 | 0x147D0 | suspected function-pointer table region | data | neighboring longwords include `0x0000A3E8`, `0x000098A2`, `0x0000E17C`; no code reference to the table address was found in the extracted PROC 1 | raw data scan | SI |
 
-The runtime `0180267E` maps to resource offset `0x98BE` with inferred
-load base `0x017F87C0`. At runtime the continuation's first longword was
+The runtime `0x0180267E` maps to resource, executable, and PROC-relative
+offset `0x000098BE` with load base `0x017F8DC0`. At runtime the
+continuation's first longword was
 zero (the value popped into D0), and the next longword was also zero (the
 RTS return PC). This proves the bad return stack state but does not yet
 identify which higher-level constructor supplied the missing continuation.
