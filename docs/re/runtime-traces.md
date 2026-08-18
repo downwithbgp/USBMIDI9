@@ -80,14 +80,46 @@ spec/oms-re-corpus/tasks.md).
   instruction after the trap with registers preserved, so the
   continuation is always the intended one (docs/g4-handoff.md).
 
-## T6. The low-level-trap trace build (current, committed 67d7aed)
+## T6. The low-level-trap trace build (committed 67d7aed; Gate A PASS 2026-08-18)
 
 - mechanism: kPowerPCLowLevelDebuggerTrap = 0x7F800008 at E0/I0–I6/IR/
   T0–T5 after each breadcrumb write; DX ON; G between checkpoints;
   record PPCC-relative offset per stop; identify checkpoint from the
   tag table (docs/g4-handoff.md). Registers preserved — the stop before
   a between-checkpoint crash is trustworthy.
-- **NOT YET RUN on the G4** — this is the pending experiment. Post-run,
-  fill the checkpoint|code offset|PPCC-relative offset|trap bytes|next
-  instruction table from `pefcheck --trapcheck --expect=15` output and
-  transcribe the stops here.
+- **Gate A PASS (host, on the G4-built PEF 4407a20e…, 10018 B):**
+  `pefcheck --trapcheck --expect=15` → VERDICT PASS, exactly 15 ×
+  `7F 80 00 08` in the Code section, all `tw 0x1c,r0,r0`, all 15 tags
+  identified, no `tag ?`/packed warning. No DebugStr / `oms_tr_*` /
+  trace-buffer code remains. MacsBug 6.5.3 stops **on the instruction
+  after** the trap, so the displayed offset is **trap+4** (the `next`
+  column of pefcheck). Full checkpoint|code|trap PPCC-rel|stop
+  PPCC-rel|next-instruction table + runtime lookup in
+  docs/g4-trap-one-pass.md.
+- **E0 stop = PPCC+0x190C** (`addi r3,r29,0`); trap opcode at +0x1908.
+- **Corrected runtime expectation:** I0 is NOT inherently the next
+  checkpoint after E0. E0 instruments every `main()` invocation; I0
+  fires only on `omdvInit`. If the first invocation is again msg 0x00FF,
+  `oms_handle_message` takes the default path (see T7) and returns
+  without any I checkpoint.
+
+## T7. Clean native-trap run (artifact 4407a20e…, low-level trap, no DebugStr) — source: session-memory
+
+- artifact sha: `4407a20eb774eec78ee2b5dc0802361d82b254b63a05ee924e49808b375e265e`
+  (G4-built `USBMIDI9_OMS_TRACE_SEARCH` PEF, 10018 B, `USBMIDI9/USBMIDI9_OMS`).
+- build config: USBMIDI9_OMS_TRACE_SEARCH low-level-trap build, PPC
+  Linker Main = `main`, trace prefix file `USBMIDI9_OMS_trace_prefix.h`.
+- observed: first MacsBug native low-level stop = **PPCC +0x190C = E0**,
+  next instruction `addi r3,r29,0`. Vadim issued **exactly one G**.
+- result: **Address Error at FFFFFFF3 — "while fetching instructions from
+  FFFFFFF1 and FFFFFFF3"**. No further native checkpoint occurred.
+- interpretation: the persistent FFFFFFF3 is **reproducible without
+  DebugStr and without any trace-induced Mixed Mode call** (this build
+  removes DebugStr entirely; the trap is a pure native stop). This closes
+  the DebugStr-perturbation hypothesis. The fault is in the
+  return/transfer path after `main` (see next G4 S-procedure): if the
+  first `main` call is msg 0x00FF, `oms_handle_message` returns 0 via the
+  default path without any I0–IR checkpoint, and the crash follows on the
+  way back to 68K — consistent with T3 (msg 0x00FF, no I0..IR fired).
+- E0→main disassembly, register mapping, and the minimal S-based next
+  procedure are in docs/g4-trap-one-pass.md (T8 design).

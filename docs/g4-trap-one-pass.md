@@ -284,20 +284,132 @@ a few instructions before the trap, so this should not happen.)
 
 ---
 
-## Post-run — host (Jayne) transcription
+## Post-run — host (Jayne) transcription  ✅ DONE 2026-08-18
 
-1. **`docs/re/runtime-traces.md`** — add a T6 row (or extend it): the
-   observed checkpoint order, each PPCC-relative offset, the stops, the
-   outcome (all 15 checkpoints occurred / genuine FFFFFFF3 at which
-   segment), the register dump if a between-checkpoint crash, and the
-   interpretation (which segment contains the fault). Replace the current
-   "NOT YET RUN" T6 note.
-2. **`docs/re/artifacts.toml`** — add (or replace) the artifact entry with
-   the **actual G4 trace-PEF sha256 + size** from `pefcheck --trapcheck`
-   output (`sha256 <hash>` and byte count of
-   `USBMIDI9/USBMIDI9_OMS`), status = built/run as observed. Preserve the
-   existing "missing" entries; do not re-derive hashes.
-3. Only after both are updated propose any new code change.
+1. **`docs/re/runtime-traces.md`** — updated T6 (Gate A PASS + MacsBug
+   stop=trap+4 semantics + corrected "I0 not necessarily next after E0")
+   and added **T7** with the actual run: artifact 4407a20e (10018 B),
+   E0 stop PPCC+0x190C, one G, then **68K Address Error PC=FFFFFFF3**
+   fetching FFFFFFF1/FFFFFFF3, no further checkpoint. Proves FFFFFFF3 is
+   reproducible without DebugStr or any trace-induced Mixed Mode call.
+2. **`docs/re/artifacts.toml`** — added artifact **`trace_build_4407a20e`**
+   (sha256 `4407a20e…`, size 10018, path `USBMIDI9/USBMIDI9_OMS`, status
+   known-good, Gate A PASS + G4 run notes).
+3. **No new code change is proposed until the next G4 S-run (T8) below is
+   transcribed.**
+
+---
+
+## T8 — next G4 step: S-based trace of main → Mixed Mode return (NO new instrumentation)
+
+The T7 run proves the crash is on the **return path after `main`**, not in
+`oms_init`/`omdvAddDevices` (no I0..IR or T0..T5 fired). Use `S`
+(single-step) only — no new traps, no stale absolute addresses. Everything
+below is from the actual G4 PEF `4407a20e…` (PPCC-relative offsets).
+
+### Exact disassembly (E0 → main → handler → final blr)
+
+`main` entry at **PPCC+0x18D0**:
+
+```
+0x18d0 mflr r0                    ; main prologue: save LR + r29/r30/r31
+0x18d4 stw  r31,-4(r1)
+0x18d8 stw  r30,-8(r1)
+0x18dc stw  r29,-0xc(r1)
+0x18e0 stw  r0,8(r1)
+0x18e4 stwu r1,-0x50(r1)
+0x18e8 addi r29,r3,0   ; r29 = msg   (arg1)
+0x18ec addi r30,r4,0   ; r30 = par1  (arg2)
+0x18f0 addi r31,r5,0   ; r31 = par2  (arg3)
+0x18f4 li   r3,0xe0    ; oms_crumb(0xE0, (u16)msg, par1, par2)
+0x18f8 clrlwi r4,r29,0x10
+0x18fc addi r5,r30,0
+0x1900 addi r6,r31,0
+0x1904 bl   0x12c8      ; oms_crumb
+0x1908 tw   0x1c,r0,r0 ; THE TRAP
+0x190c addi r3,r29,0    ; **A = E0 stop / first instruction**  (r3 = msg)
+0x1910 addi r4,r30,0    ; r4 = par1
+0x1914 addi r5,r31,0    ; r5 = par2
+0x1918 bl   0x17bc      ; **B = bl oms_handle_message**
+0x191c lwz  r0,0x58(r1) ; **C = first instruction after return**
+0x1920 addi r1,r1,0x50
+0x1924 mtlr r0
+0x1928 lwz  r31,-4(r1)
+0x192c lwz  r30,-8(r1)
+0x1930 lwz  r29,-0xc(r1)
+0x1934 blr              ; **D = final main blr**
+```
+
+`oms_handle_message` entry **PPCC+0x17BC**; msg dispatch:
+
+```
+0x17e0 extsh  r3,r29      ; sign-extend msg
+0x17e4 cmplwi r3,0x2b     ; cmp unsigned to 43
+0x17e8 bgt    0x18b0      ; msg > 43 -> DEFAULT (0x00FF=255 > 43 -> default)
+...
+0x18b0 li r3,0            ; default handler: return 0
+0x18b4 lwz r0,0x58(r1)
+0x18b8 addi r1,r1,0x50
+0x18bc mtlr r0
+0x18c0 lwz r31,-4(r1)
+0x18c4 lwz r30,-8(r1)
+0x18c8 lwz r29,-0xc(r1)
+0x18cc blr                ; -> return to main at 0x191c
+```
+
+**Offsets (PPCC-relative):**
+- **A = 0x190C** — E0 stop / first instruction (`addi r3,r29,0`).
+- **B = 0x1918** — `bl oms_handle_message`.
+- **C = 0x191C** — first instruction after `oms_handle_message` returns
+  (`lwz r0,0x58(r1)`).
+- **D = 0x1934** — final `main` `blr`.
+
+**Register mapping at E0 (stop 0x190C):** `r29 = msg`, `r30 = par1`,
+`r31 = par2` — set in the prologue at 0x18e8–0x18f0 **before** the trap,
+and the MacsBug low-level trap stops **without modifying registers**, so
+at the E0 stop r29/r30/r31 still hold msg/par1/par2. (r3 at the stop is
+clobbered by the `oms_crumb` call at 0x1904; the very next instruction
+`addi r3,r29,0` re-establishes r3=msg from r29.)
+
+### Minimal S-procedure (from the E0 stop at PPCC+0x190C)
+
+1. **Capture PPC registers:** MacsBug `R` (full dump). Confirm **r29 =
+   0x00FF** (msg), r30 = par1, r31 = par2, PC = +0x190C. This is the
+   clean-build check that the first `main` call is again msg 0x00FF.
+2. **Step to the handler call:** `S` three times →
+   - S1 0x190c (`r3=r29`)
+   - S2 0x1910 (`r4=r30`)
+   - S3 0x1914 (`r5=r31`)
+   now at **0x1918** (`bl oms_handle_message`).
+3. **Cross the handler (default path):**
+   - `S` into oms_handle_message at **0x17BC**, then `S` to the dispatch
+     branch **0x17e8** and confirm it branches to the default **0x18B0**
+     (r29 > 43 ⇒ default). This is the proof msg=0x00FF takes the default
+     path (return 0, no omdvInit).
+   - Then either `S` through the trivial default (0x18b0 `li r3,0` →
+     epilogue 0x18b4–0x18cc → `blr` → returns to main at **0x191C**), or
+     `GT` to the **in-session-computed absolute** of 0x191C
+     (`abs = ppcc_base + 0x191C`; read `ppcc_base` = the fragment base from
+     the current stop's absolute address, do NOT reuse any prior boot's
+     absolute). Prefer `S` to avoid absolute arithmetic.
+4. **Reach and verify the final main blr:** `S` through main's epilogue
+   0x191c → 0x1920 → 0x1924 → 0x1928 → 0x192c → 0x1930, now at **D =
+   0x1934**. Capture **LR** (the OMS caller's return address — the PPC
+   Mixed Mode trampoline) and PC (should be +0x1934).
+5. **S across the blr into Mixed Mode and follow to the fault:** at 0x1934
+   `S` once executes the blr → PC = LR (the trampoline). Continue `S`,
+   following the PPC→68K return transfer, until either:
+   - a **valid 68K OMS instruction** is reached (then the transfer is
+     exonerated; the fault is inside 68K OMS), or
+   - the **bad transfer** producing the 68K Address Error (fetch at
+     FFFFFFF1/FFFFFFF3) — capture the **last valid PPC instruction**, the
+     transfer setup (which 68K address/register is being targeted), and
+     how that bad 68K target is derived, before it faults. Do NOT step
+     past the faulting transfer.
+
+**Constraints:** no new instrumentation, no new checkpoints, no reuse of
+absolute addresses from prior boots. Every address is PPCC-relative unless
+computed in-session from the current fragment base.
 
 ---
 
