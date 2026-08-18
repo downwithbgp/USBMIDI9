@@ -48,8 +48,8 @@ error: it is `0x600` below the correct base and would map `0x98BE` to
 | library PROC 1 | 0x0DAA2 | driver-load fn | 68K | loads PPCC/PROC, pref=2 continuation 0x0DB6E..0x0DC1E | disasm + loader trace | P |
 | library PROC 1 | 0x0DBDC | **GetDiskFragment site** | trap AA5A | args: FSSpec (table+0x52), filename (table+0x62), options 5; out: mainSymbolClass, connID, **mainAddr**; 32 result bytes copied to driver table +0x66 (moveq #7 loop at 0xDBF6) | disasm | P |
 | driver record | +0x52 | connID out | — | CFragConnectionID | G.1 | P |
-| driver record | +0x62 | **mainAddr out** | — | = fragment's main symbol (loader-info special main) | G.1; no GetMemFragment/FindSymbol in path | P |
-| driver record | +0x66 | FSSpec/interior area | — | driver FSSpec; also `lea.l $66(a2),a0` at 0x0DC16 | G.1 + H1 | P |
+| driver record | +0x62 | **mainAddr out** | — | CFM-returned fragment main handle/address; live path's `+0x66` copy is a RoutineDescriptor whose `procDescriptor` is the fragment's PPC transition vector | G.1 + live descriptor dump | P |
+| driver record | +0x66 | CFM result / main descriptor area | — | eight longwords copied from the GetDiskFragment result area; live first pointer is the RoutineDescriptor; `lea.l $66(a2),a0` then aliases `+0x52` to this area | G.1 + live dump | P |
 
 ## M2. Driver-message dispatch (PROVEN — §G.2)
 

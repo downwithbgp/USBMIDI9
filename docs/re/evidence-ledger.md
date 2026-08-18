@@ -193,6 +193,33 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   The proven mismatch is between the `+98A2` frame and the valid
   zero-argument descriptor stored in the loader record's `+0x52`.
 
+### P16. The live RoutineDescriptor targets the PPC main transition vector
+- **Claim:** The live `procDescriptor` value `0x018E9B78` contains
+  `[0x018E8C80, 0x018F1AF0]`. With current PPCC base `0x018E73B0`, the
+  code address is code offset `0x1650`, matching the PPC `main` prologue;
+  the second longword is its TOC. The following pair
+  `[0x018E8304,0x018F1AF0]` is a neighboring vector.
+- **Confidence:** PROVEN from the live target dump and current trace PEF
+  layout.
+
+### P17. ProcInfo zero is CFM descriptor metadata, not an OMS/driver resource write
+- **Proven static facts:** OMS PROC1 copies eight longwords from the
+  `GetDiskFragment` result area into record `+0x66` at `+0x0DBF0`–`+0x0DBF8`.
+  It then aliases record `+0x52` to `record+0x66` at `+0x0DC10`–`+0x0DC16`.
+  OMS PROC1 contains no `NewRoutineDescriptor` call and no instruction
+  writing the embedded RoutineRecord `procInfo`.
+- **Strong inference:** The RoutineDescriptor at record `+0x66` is supplied
+  by the Code Fragment Manager/GetDiskFragment path, and its embedded
+  `procInfo=0` is CFM-generated metadata for an untyped/non-dispatched
+  entry descriptor. The OMS generic A9E2 call supplies the authentic
+  `0x0FB0` ProcInfo externally; that does not rewrite the descriptor.
+- **Consequence:** A known-good OMS PPC entry need not have embedded
+  `procInfo=0x0FB0`; it can work when invoked through
+  `CallUniversalProc(...,0x0FB0,...)`. The failure occurs when this path
+  directly `JSR`s the descriptor and thereby relies on its embedded zero
+  contract. Exact CFM implementation provenance remains an external
+  platform fact, but OMS OMdi/PPCC bytes are not the source of the zero.
+
 ## STRONG INFERENCE
 
 ### S1. PC=FFFFFFF3 is a 68K Address Error in the OMS library's driver invocation path

@@ -22,3 +22,12 @@ A7=2EB55A6E; A2=01809EE0; A0 after return=01809F46.
 OBJ+0x52=01809F32 contains 01809F46, and OBJ+0x66=01809F46.
 The descriptor at 01809F46 therefore has procInfo=00000000, ISA=01,
 routineFlags=0004, and procDescriptor=018E9B78.
+
+Follow-up target dump:
+
+018E9B78 018E8C80 018F1AF0 018E8304 018F1AF0
+
+The first pair is the relevant PPC transition vector: code=018E8C80 and
+TOC=018F1AF0. With current PPCC base 018E73B0, code=018E8C80 is code
+offset 0x1650, the PPC main prologue. The second pair is a neighboring
+vector and is not used by this RoutineRecord.
