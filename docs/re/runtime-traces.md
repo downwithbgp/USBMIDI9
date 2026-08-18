@@ -181,5 +181,10 @@ identity at `S+0x0A` remains unresolved.
   `+0x98A2` whose valid zero-argument UPP belongs elsewhere. The separate
   authentic OMS entry ProcInfo `0x0FB0` must not be applied here without
   provenance evidence.
+- The PPC `msg=0x00FF`, pointer, and `1` values observed during the direct
+  descriptor invocation are not protocol evidence: embedded ProcInfo zero
+  marshals no arguments. Treat those registers as inherited/otherwise
+  produced state unless an independent `CallUniversalProc(...,0x0FB0,...)`
+  observation proves the tuple on that separate path.
 - The descriptor's creator, the object supplying `0x0052`, and whether
   `0x01AEDF58` is the USBMIDI9 PPCC main/transition vector remain unresolved.

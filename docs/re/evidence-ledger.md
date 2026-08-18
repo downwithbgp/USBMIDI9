@@ -220,6 +220,17 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   contract. Exact CFM implementation provenance remains an external
   platform fact, but OMS OMdi/PPCC bytes are not the source of the zero.
 
+### P18. PPC `msg=0x00FF`, `par1`, and `par2` from the direct-descriptor call are not protocol evidence
+- **Claim:** Once the live descriptor's embedded `procInfo=0` is proven,
+  the PPC register values observed during the `+0x98BC JSR (A0)` invocation
+  cannot be treated as unmarshaled OMS arguments. The zero-ProcInfo contract
+  marshals no parameters. They may be inherited register state or values
+  produced by another invocation path.
+- **Consequence:** The observed PPC `0x00FF`/pointer/`1` tuple is demoted
+  from evidence of an undocumented OMS message protocol. The proven failure
+  mechanism is the valid zero-argument descriptor returning without
+  consuming the `+98A2` frame.
+
 ## STRONG INFERENCE
 
 ### S1. PC=FFFFFFF3 is a 68K Address Error in the OMS library's driver invocation path
