@@ -242,6 +242,26 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   not yet the proven consumer of the raw `+0x147D4` word or the proven live
   caller of `+0x98A2`. The final OMS-vs-driver root cause remains open.
 
+### S4. `+0x98A2` has no resolved direct PROC1 caller
+- **Claim:** the raw word `000098A2` at `PROC1+0x147D4` is not yet a
+  proven indirect-table edge. A complete scan of the extracted PROC1
+  found no direct `BSR/JSR` target to `+0x98A2` and no identified in-code
+  consumer of the `+0x147D0` region.
+- **Evidence:** raw-byte scan of `omslib_proc1.bin`; the only occurrence of
+  `000098A2` is at `+0x147D4`; `+0x98A2` is not reached by a direct
+  PC-relative call in the blob.
+- **Consequence:** the exact producer of the live entry word `S+0x08 =
+  0xFFFF` and object pointer `S+0x0A` cannot be claimed statically from
+  this artifact. The next decisive runtime value, if needed, is the return
+  PC at `[A7]` on entry to `+0x98A2`.
+
+### S5. A second generic `object+0x52` consumer exists
+- **Claim:** `+0xE160` directly loads `object+0x52`, forwards an incoming
+  word plus two longwords, and returns the callback's word result.
+- **Evidence:** disassembly at `+0xE160` through `+0xE178`.
+- **Caveat:** no static edge connects `+0xE160` to the raw `+0x147D4`
+  word or to the live `+0x98A2` invocation.
+
 ## STRONG INFERENCE
 
 ### S1. PC=FFFFFFF3 is a 68K Address Error in the OMS library's driver invocation path

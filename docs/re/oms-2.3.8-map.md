@@ -156,14 +156,15 @@ The continuation therefore pops the `+98B2` zero, and its RTS consumes the
 value's `+0x52` remain unresolved; the `0x147D4` table word is only a raw
 data occurrence and has no identified in-code consumer.
 
-The data at `0x147D0` is a candidate table because it contains neighboring
-function-like offsets, including `0x000098A2`; however, the extracted PROC
-1 has no literal code reference to `0x147D0`/`0x147D4`. Its table consumer,
-base, stride, and argument construction remain unresolved. No contradiction
-to `uppOMSDriverProcInfo=0x0FB0` has been established. The later runtime
-capture proves that the `0x0052` value used on this path can be a Mixed Mode
-RoutineDescriptor, so the earlier raw-68K-callback interpretation is
-retracted.
+The data at `0x147D0` is only a raw data occurrence: the extracted PROC 1
+has no direct `BSR/JSR` xref to `0x98A2`, and no in-code consumer of the
+`0x147D0` region has been identified. Its table interpretation, base,
+stride, and argument construction therefore remain unresolved. The word
+`0x000098A2` must not yet be used as a proven call-graph edge. No
+contradiction to `uppOMSDriverProcInfo=0x0FB0` has been established. The
+later runtime capture proves that the `0x0052` value used on this path can
+be a Mixed Mode RoutineDescriptor, so the earlier raw-68K-callback
+interpretation is retracted.
 
 Static descriptor-consumer check: PROC1 `+0x1EE0` compares the word at
 `4(A7)` with `0xAAFE` and returns a Boolean. Its caller at `+0x1EF0`
@@ -179,12 +180,16 @@ therefore remain unresolved.
 Additional callback-path finding: function `+0x94A2` writes
 `object+0x52` to `object+0x8A` at `+0x94D8`, then directly calls the
 resulting `object+0x8A` target at `+0x94EE`. Related list walkers at
-`+0x99D6` and `+0xA30A` also call `object+0x8A`. This is a concrete OMS
-consumer path capable of directly invoking the record's `+0x52` value, but
-the current static corpus does not prove that the live `+0x98A2` entry is
-selected through this path, nor does it resolve the raw data word at
-`+0x147D4` to a code consumer. The `+0x147D4` xref and the exact producer
-of its two incoming arguments remain open.
+`+0x99D6` and `+0xA30A` also call `object+0x8A`. These are a concrete
+callback family, selected by object-state checks at `+0x94AE`/`+0x94B4`,
+`+0x98FC`/`+0x9928`, `+0x99BE`, and `+0xA2F4` respectively.
+
+There is also a separate generic direct-`+0x52` helper at `+0xE160`:
+it forwards an incoming word and two longwords to `object+0x52` and returns
+a word result. Its static callers are likewise not direct `BSR/JSR` edges
+in this extracted blob. This establishes a second consumer family, but
+does not connect either family to the orphan raw `+0x147D4` word or prove
+that either one selected the live `+0x98A2` entry.
 
 ## M5. OMS Setup PPC driver-call sites (H)
 
