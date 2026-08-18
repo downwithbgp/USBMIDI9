@@ -231,6 +231,14 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   mechanism is the valid zero-argument descriptor returning without
   consuming the `+98A2` frame.
 
+### S3. OMS has a concrete direct-callback consumer through object `+0x8A`
+- **Claim:** `+0x94A2` copies `object+0x52` to `object+0x8A` and directly
+  calls `object+0x8A` at `+0x94EE`; related walkers at `+0x99D6` and
+  `+0xA30A` use the same indirect field.
+- **Status:** STRONG INFERENCE as a possible route to the live descriptor,
+  not yet the proven consumer of the raw `+0x147D4` word or the proven live
+  caller of `+0x98A2`. The final OMS-vs-driver root cause remains open.
+
 ## STRONG INFERENCE
 
 ### S1. PC=FFFFFFF3 is a 68K Address Error in the OMS library's driver invocation path

@@ -173,6 +173,16 @@ record family is the object read at `+98B4`. A scan found no
 `S+0x0A` object identity, and the connection of that object to `+0x98A2`
 therefore remain unresolved.
 
+Additional callback-path finding: function `+0x94A2` writes
+`object+0x52` to `object+0x8A` at `+0x94D8`, then directly calls the
+resulting `object+0x8A` target at `+0x94EE`. Related list walkers at
+`+0x99D6` and `+0xA30A` also call `object+0x8A`. This is a concrete OMS
+consumer path capable of directly invoking the record's `+0x52` value, but
+the current static corpus does not prove that the live `+0x98A2` entry is
+selected through this path, nor does it resolve the raw data word at
+`+0x147D4` to a code consumer. The `+0x147D4` xref and the exact producer
+of its two incoming arguments remain open.
+
 ## M5. OMS Setup PPC driver-call sites (H)
 
 `oms_setup_code1.bin` (140038 B, 68K code) contains the OMS Setup
