@@ -33,9 +33,9 @@ beforehand.
     -D warnings` → clean.
   - `pefcheck --trapcheck fixtures/production_usbmidi9.pef` → **VERDICT
     PASS, 0 traps** (production fixture carries no instrumentation).
-  - Existing live PEF on the share (`USBMIDI9/USBMIDI9_OMS`, 11442 B,
-    sha256 `248f8d46…`) → **0 traps** (production build; must be
-    REPLACED by the trace build below).
+  - Existing live PEF on the share was production (11442 B, sha
+    `248f8d46…`, 0 traps); **it has since been replaced by the G4 trace
+    build** — see "Gate A — RESULT" below.
 
 **No further source changes are needed.** Only change source if the G4
 CW4 compiler rejects the inline asm `asm { tw 0x1C, r0, r0 }` — then use
@@ -115,12 +115,44 @@ Also run, for the negative control (the production build must stay clean):
 **Fill the actual table** from the pefcheck output (do NOT substitute
 host/synthetic offsets):
 
+### Gate A — RESULT (2026-08-18, G4-built PEF): **PASS**
+
+`USBMIDI9/USBMIDI9_OMS` — **10018 bytes**, sha256
+`4407a20eb774eec78ee2b5dc0802361d82b254b63a05ee924e49808b375e265e`.
+`pefcheck --trapcheck --expect=15` → **VERDICT: PASS — 15 traps (expected
+15)**, exit 0, all decode `tw 0x1c,r0,r0`, every checkpoint tag identified
+(`I0 I1 I2 I3 I4 I5 I6 IR T1 T2 T3 T4 T5 T0 E0`), no `tag ?`, no packed
+section warning. Only the Code section (container 0x280) carries traps;
+exactly 15 × `7F 80 00 08` in it. **No DebugStr / `oms_tr_*` / trace
+buffer code remains** (the only `DebugStr` text in `oms_driver.c` is the
+prose comment "DebugStr did NOT cause the original production crash").
+The trap is emitted inline: every decoded next instruction is the
+checkpoint's own continuation (li/lwz/bl/addi/or), never a helper `blr`.
+
 | checkpoint | code offset | PPCC-relative offset | trap bytes | next instruction |
 |---|---|---|---|---|
-| E0 | (from output) | (from output) | 7F 80 00 08 | (decoded) |
-| I0 | | | 7F 80 00 08 | |
-| … | | | | |
-| T5 | | | 7F 80 00 08 | |
+| E0 | 0x1688 | 0x1908 | 7F 80 00 08 | `addi r3,r29,0` |
+| I0 | 0x0d98 | 0x1018 | 7F 80 00 08 | `li r3,257` |
+| I1 | 0x0db0 | 0x1030 | 7F 80 00 08 | `lbz r3,9(r31)` |
+| I2 | 0x0e14 | 0x1094 | 7F 80 00 08 | `lwz r3,-32708(r2)` |
+| I3 | 0x0e44 | 0x10c4 | 7F 80 00 08 | `li r3,36` |
+| I4 | 0x0ee8 | 0x1168 | 7F 80 00 08 | `bl -0x33c` |
+| I5 | 0x0f04 | 0x1184 | 7F 80 00 08 | `li r3,262` |
+| I6 | 0x0f1c | 0x119c | 7F 80 00 08 | `li r3,0` |
+| IR | 0x0f5c | 0x11dc | 7F 80 00 08 | `li r3,0` |
+| T0 | 0x15b0 | 0x1830 | 7F 80 00 08 | `or r31,r3,r31` |
+| T1 | 0x1104 | 0x1384 | 7F 80 00 08 | `lwz r3,0(r30)` |
+| T2 | 0x11f0 | 0x1470 | 7F 80 00 08 | `addi r3,r1,60` |
+| T3 | 0x1278 | 0x14f8 | 7F 80 00 08 | `addi r3,r29,0` |
+| T4 | 0x12ac | 0x152c | 7F 80 00 08 | `addi r31,r31,1` |
+| T5 | 0x12d4 | 0x1554 | 7F 80 00 08 | `li r3,0` |
+
+**Runtime offset note:** the pefcheck scan lists traps in **code-layout**
+offset order (I0…T5,T0,E0), but during a real OMS Search the checkpoints
+fire in **execution** order: **E0 (main entry) first**, then
+I0→I1→…→I6→IR (omdvInit), then T0→T1→…→T5 (omdvAddDevices). Match each
+displayed `+offset` to the name via the lookup; do not expect the offsets
+in ascending order during the run.
 
 **Verify exactly 15 × 7F 80 00 08 and NO DebugStr / Mixed Mode trace
 path** in the trace PEF: pefcheck counts the trap words (must be 15), and
@@ -198,23 +230,41 @@ Filled from the actual pefcheck output (Phase 1) so Vadim reads the
 displayed offset and names the checkpoint without computing anything.
 Sort by offset; each line: `+0x____ = E0`, `+0x____ = I0`, …,
 
+### Runtime lookup — actual G4 trace PEF (2026-08-18), by PPCC-relative offset
+
 | offset | checkpoint | crumb tag |
 |---|---|---|
-| (pefcheck ppcc-rel) | E0  | 0xE0 |
-| | I0 | 0x100 |
-| | I1 | 0x101 |
-| | I2 | 0x102 |
-| | I3 | 0x103 |
-| | I4 | 0x104 |
-| | I5 | 0x105 |
-| | I6 | 0x106 |
-| | IR | 0x1F0 |
-| | T0 | 0x200 |
-| | T1 | 0x201 |
-| | T2 | 0x202 |
-| | T3 | 0x203 |
-| | T4 | 0x204 |
-| | T5 | 0x205 |
+| +0x1018 | I0 | 0x100 |
+| +0x1030 | I1 | 0x101 |
+| +0x1094 | I2 | 0x102 |
+| +0x10c4 | I3 | 0x103 |
+| +0x1168 | I4 | 0x104 |
+| +0x1184 | I5 | 0x105 |
+| +0x119c | I6 | 0x106 |
+| +0x11dc | IR | 0x1F0 |
+| +0x1384 | T1 | 0x201 |
+| +0x1470 | T2 | 0x202 |
+| +0x14f8 | T3 | 0x203 |
+| +0x152c | T4 | 0x204 |
+| +0x1554 | T5 | 0x205 |
+| +0x1830 | T0 | 0x200 |
+| +0x1908 | E0 | 0xE0 |
+
+Compact one-line key (read it with the run, sorted by offset):
+
+```
+0x1018=I0  0x1030=I1  0x1094=I2  0x10c4=I3  0x1168=I4  0x1184=I5
+0x119c=I6  0x11dc=IR  0x1384=T1  0x1470=T2  0x14f8=T3  0x152c=T4
+0x1554=T5  0x1830=T0  0x1908=E0
+```
+
+**Execution order** (what a real Search will produce, in order):
+`E0 (+0x1908)` → `I0 (+0x1018)` → `I1 (+0x1030)` → `I2 (+0x1094)` →
+`I3 (+0x10c4)` → `I4 (+0x1168)` → `I5 (+0x1184)` → `I6 (+0x119c)` →
+`IR (+0x11dc)` → `T0 (+0x1830)` → `T1 (+0x1384)` → `T2 (+0x1470)` →
+`T3 (+0x14f8)` → `T4 (+0x152c)` → `T5 (+0x1554)`. Match each displayed
+`+offset` to the name; the offsets are NOT in ascending order at runtime
+because E0/main is laid out at the end of the code section.
 
 (If a checkpoint is identified by `tag ?` in pefcheck — i.e. the trap's
 preceding `li` was not recognized — name it from the breadcrumb ring
