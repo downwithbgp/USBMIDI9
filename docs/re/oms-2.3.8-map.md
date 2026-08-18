@@ -4,7 +4,10 @@ All offsets are **file/resource-relative**, never runtime absolute.
 Component: `omslib_proc1.bin` = `PROC` 1 of `Open Music System.rsrc`
 (OMS library; sha256 3655f74d…, 86507 B; proprietary — hash-only in
 artifacts.toml). "TM stub" = the authentic OMS Time Manager `PPCC` 1
-PEF (`tm_ppcc1.pef` fixture, sha256 4a0978fe…, 1579 B). "OMS Setup" =
+PEF fixture extracted from `OMS Time Manager.rsrc`
+(`tm_ppcc1.pef`, sha256 4a0978fe…, 1579 B). This is a static PEF
+comparison artifact, not a complete installable OMS driver and not proof
+that Time Manager is installed on the G4. "OMS Setup" =
 `oms_setup_proc1.bin` (sha256 277050e3…, 604 B — a PROC, not the main
 code blob) and `oms_setup_code1.bin` (sha256 19662c84…, 140038 B).
 

@@ -15,8 +15,8 @@ sha256 = "4a0978fe6ee557a31a75fa46c5941d0a249433c93f745efc022eef3635c5a295"
 size = 1579
 source = "OMS 2.3.8 'OMS Time Manager.rsrc' PPCC 1 (authentic Opcode component)"
 resource = "PPCC 1"
-status = "known-good"      # works on the G4; the reference PEF shape
-notes = "special main = section 1 + 0x3C; vector [0x1000016C,0x10000470]"
+status = "known-good static fixture"
+notes = "Authentic Opcode OMS Time Manager PPCC 1 PEF used for static/PEF comparison; not a complete installable OMS driver file, not evidence that TM is installed on the G4. special main = section 1 + 0x3C; vector [0x1000016C,0x10000470]"
 
 [[artifact]]
 name = "omslib_ppcc601"

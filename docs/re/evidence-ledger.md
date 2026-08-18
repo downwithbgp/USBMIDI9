@@ -40,12 +40,15 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   by a TVector8 relocation at load time; the container stores
   pre-relocation bytes.
 - **Evidence:** `pefcheck --trapcheck`/structural checks on
-  `tm_ppcc1.pef` (authentic Time Manager PPCC 1, works on the G4):
+  `tm_ppcc1.pef` (authentic Time Manager PPCC 1 static fixture):
   special main = section 1 + 0x3C; relocation simulator reconstructs
   `[0x1000016C, 0x10000470]` (entry = code section base + 0x16C, TOC =
   data section base + 0); OMSLib PPCC 601 = section 1 + 0x4 →
   `[0x10000000, 0x100000D0]` (docs/pefcheck-report.md). The TM's
-  mainAddr is callable by OMS through Mixed Mode (runtime: the TM works).
+  mainAddr has the expected Mixed Mode-callable representation. The
+  repository contains only this extracted PPCC 1 fixture, not a complete
+  installable Time Manager/OMS driver file; no G4 installation or runtime
+  Search result is established by this artifact.
 
 ### P4. E2b is INVALID: code-section container alignment
 - **Claim:** E2b (the direct-code diagnostic) is an invalid PEF: its code
