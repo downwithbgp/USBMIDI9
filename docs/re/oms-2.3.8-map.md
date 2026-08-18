@@ -116,13 +116,42 @@ The raw bytes are:
 0x98C2: 4E 75               RTS
 ```
 
-Let entry A7 be `S`. The stack deltas are `0x00`, `-0x04`, `-0x06`,
+The extension word is the unsigned bit pattern `0x0018`; as a signed
+16-bit displacement it is `+0x0018` = `+24` decimal. It is not decimal
+18. Let entry A7 be `S`. The stack deltas are `0x00`, `-0x04`, `-0x06`,
 `-0x0A`, `-0x0E`, then `-0x12` during `JSR`; the ordinary callee return
-restores A7 to `S-0x0E`. Therefore `0x0018(A7)` at `0x98B4` reads
-`S+0x0A`. The raw bytes prove the field displacement is `0x0052`, but do
+restores A7 to `S-0x0E`. Therefore the effective address is mechanically
+`S-0x0E + (+0x0018) = S+0x0A`. `+98B4` loads the longword at exactly
+`S+0x0A`; it is not yet proven to be an object or named argument. The raw
+bytes prove the separate field displacement is `0x0052`, but do
 not prove that the value at `S+0x0A` is a first argument or that its object
 is the loader record. Those earlier identities are retracted pending a
 consumer/caller trace.
+
+The byte-level entry/constructed layout is:
+
+```text
+entry S+0x00..0x03  caller return PC                         (not rewritten here)
+      S+0x04..0x07  caller-owned/contract-dependent longword (not proven)
+      S+0x08..0x09  word tested by CMPI.W = 0xFFFF
+      S+0x0A..0x0D  longword loaded by +98B4                 (value unknown statically)
+      S+0x0E..0x11  following incoming bytes                 (not consumed by +98B4)
+
+after +98B2, A7=S-0x0E:
+      S-0x0E..0x0B  00000000  written by CLR.L at +98B2
+      S-0x0A..0x07  00000000  written by CLR.L at +98B0
+      S-0x06..0x05  FFFF      written by MOVE.W at +98AC
+      S-0x04..0x01  reserved by SUBQ.W #4 at +98AA
+
+during +98BC JSR, A7=S-0x12:
+      S-0x12..0x0F  68K return PC pushed by JSR
+```
+
+On an ordinary return from the Mixed Mode target, A7 is again `S-0x0E`.
+The continuation therefore pops the `+98B2` zero, and its RTS consumes the
+`+98B0` zero. The producer of `S+0x0A` and the writer of the resulting
+value's `+0x52` remain unresolved; the `0x147D4` table word is only a raw
+data occurrence and has no identified in-code consumer.
 
 The data at `0x147D0` is a candidate table because it contains neighboring
 function-like offsets, including `0x000098A2`; however, the extracted PROC
