@@ -143,7 +143,14 @@ spec/oms-re-corpus/tasks.md).
 
 Static correlation: the exact bytes occur in the hash-pinned OMS library
 `PROC 1` (`omslib_proc1.bin`, sha256 `3655f74d…`) at resource offset
-`0x98BE`, immediately after the indirect `jsr (a0)` in the routine at
-`0x98A2`; the continuation pops the callback/result longword and then RTSes.
+`0x98BE`, immediately after the indirect `JSR (A0)` in the routine at
+`0x98A2`; the continuation pops the next longword and then RTSes. The raw
+bytes at `0x98B4` are `20 6F 00 18`, so its displacement is `0x0018` and,
+after A7 reaches `S-0x0E`, it reads `S+0x0A`. The raw bytes at `0x98B8`
+are `20 68 00 52`, proving only the `0x0052` displacement.
 The runtime address maps as `0x0180267E - 0x98BE = 0x017F87C0` load base.
-This is a resource-offset mapping, not a reusable runtime address.
+This is a resource-offset mapping, not a reusable runtime address. The
+earlier claim that `0x98B4` reads `S+0x04` and that the two zero words were
+already identified as result-slot/return-PC is corrected: at the observed
+SP they are the two `CLR.L` values at `S-0x0E` and `S-0x0A`; the object
+identity at `S+0x0A` remains unresolved.

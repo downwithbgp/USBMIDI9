@@ -56,13 +56,13 @@ docs/oms-ppcc-entry-crash.md), SI = STRONG INFERENCE, H = HYPOTHESIS.
 |---|---|---|---|---|---|
 | library PROC 1 | 0x99B6 | generic list-dispatcher | 68K | reads msg from caller `$10(a7)`; only direct caller 0x9F4A (passes 0x23) | disasm |
 
-## M4a. Zero-return continuation reached by the T8/T9 failure (PROVEN)
+## M4a. Zero-return continuation reached by the T8/T9 failure (byte-audited)
 
 | component/resource | offset | proposed name | convention | inputs/outputs | evidence | confidence |
 |---|---:|---|---|---|---|---|
-| library PROC 1 | 0x98A2 | special/internal dispatch routine | 68K | tests the word at `$8(a7)`; on its special path constructs a callback call and reaches the continuation below | disasm | P |
+| library PROC 1 | 0x98A2 | special/internal dispatch routine | 68K | tests word at `0x0008(A7)`; special path constructs a callback call and reaches the continuation below | raw bytes + disasm | P |
 | library PROC 1 | 0x98BE | post-callback continuation | 68K | exact bytes `20 1F 70 00 4E 75`; pops a longword into D0, clears D0, RTS | byte match + T8/T9 | P |
-| library PROC 1 | 0x147D4 | callback/function-table entry | data | longword `0x000098A2`; indirect/table-based reference, not a direct `jsr` xref | byte scan | P |
+| library PROC 1 | 0x147D0 | suspected function-pointer table region | data | neighboring longwords include `0x0000A3E8`, `0x000098A2`, `0x0000E17C`; no code reference to the table address was found in the extracted PROC 1 | raw data scan | SI |
 
 The runtime `0180267E` maps to resource offset `0x98BE` with inferred
 load base `0x017F87C0`. At runtime the continuation's first longword was
@@ -70,17 +70,36 @@ zero (the value popped into D0), and the next longword was also zero (the
 RTS return PC). This proves the bad return stack state but does not yet
 identify which higher-level constructor supplied the missing continuation.
 
-The immediately preceding constructor is visible at `0x98AA–0x98BC`:
-`subq.w #4,(a7)`, push word `-1`, push two zero longwords, load an indirect
-function pointer from `+$52`, and `jsr (a0)`. On return, `0x98BE` pops one
-of those constructed zero longwords as D0; its RTS then sees the next
-constructed zero instead of a valid continuation. Thus `[A7]` at the
-continuation is the zero result/temporary slot, while `[A7+4]` is supposed
-to be the caller continuation but is zero in this invocation. The exact
-owner of the `+$52` function pointer and the Mixed Mode/UniversalProc
-contract that should preserve or remove the temporary slots remain the
-next static target; no contradiction to `uppOMSDriverProcInfo=0xFB0` has
-been established.
+The raw bytes are:
+
+```text
+0x98A2: 0C 6F FF FF 00 08   CMPI.W #$FFFF,0x0008(A7)
+0x98A8: 66 16               BNE.S  0x98C0
+0x98AA: 59 4F               SUBQ.W #4,A7
+0x98AC: 3F 3C FF FF         MOVE.W #$FFFF,-(A7)
+0x98B0: 42 A7               CLR.L  -(A7)
+0x98B2: 42 A7               CLR.L  -(A7)
+0x98B4: 20 6F 00 18         MOVEA.L 0x0018(A7),A0
+0x98B8: 20 68 00 52         MOVEA.L 0x0052(A0),A0
+0x98BC: 4E 90               JSR    (A0)
+0x98BE: 20 1F               MOVE.L (A7)+,D0
+0x98C0: 70 00               MOVEQ  #0,D0
+0x98C2: 4E 75               RTS
+```
+
+Let entry A7 be `S`. The stack deltas are `0x00`, `-0x04`, `-0x06`,
+`-0x0A`, `-0x0E`, then `-0x12` during `JSR`; the ordinary callee return
+restores A7 to `S-0x0E`. Therefore `0x0018(A7)` at `0x98B4` reads
+`S+0x0A`. The raw bytes prove the field displacement is `0x0052`, but do
+not prove that the value at `S+0x0A` is a first argument or that its object
+is the loader record. Those earlier identities are retracted pending a
+consumer/caller trace.
+
+The data at `0x147D0` is a candidate table because it contains neighboring
+function-like offsets, including `0x000098A2`; however, the extracted PROC
+1 has no literal code reference to `0x147D0`/`0x147D4`. Its table consumer,
+base, stride, and argument construction remain unresolved. No contradiction
+to `uppOMSDriverProcInfo=0x0FB0` has been established.
 
 ## M5. OMS Setup PPC driver-call sites (H)
 

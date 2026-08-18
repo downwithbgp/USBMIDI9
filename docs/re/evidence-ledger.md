@@ -142,7 +142,10 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   at resource offset `0x98BE`.
 - **Consequence:** direct `FFFFFFF3` pointer/JSR/JMP searches are closed.
   The remaining static question is the malformed stack construction feeding
-  the `0x98A2` routine's post-`jsr (a0)` continuation.
+  the `0x98A2` routine's post-`JSR (A0)` continuation. A subsequent raw-byte
+  audit corrected the displacement at `0x98B4` to `0x0018`: with entry SP
+  `S`, the load reads `S+0x0A`, not `S+0x04`; only the separate `0x0052`
+  displacement at `0x98B8` is proven as an object-field offset.
 
 ## STRONG INFERENCE
 
