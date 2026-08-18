@@ -14,6 +14,11 @@ All ProcInfo decodes are mechanically reproduced by
   ProcInfo tells the Mixed Mode Manager the calling convention, the
   result size, and the argument layout (stack and/or registers) — it
   must match the actual routine.
+- An embedded `procInfo=0x00000000` is a valid zero-parameter/zero-result
+  contract for the procedure represented by that descriptor. It is not
+  intrinsically malformed because a caller constructed a different frame.
+  In T8/T9, the proven issue is the mismatch between the frame built at
+  PROC1 `+0x98A2` and the descriptor reached through object `+0x52`.
 - A 68K `JSR` to a UPP/RoutineDescriptor is a valid Mixed Mode entry: the
   `0xAAFE` descriptor trap dispatches according to its RoutineRecord. A PPC
   direct call to a 68K UPP is different and can execute descriptor data as
@@ -46,6 +51,10 @@ OMSDrvUPPs.h) uses:
 Evidence: SDK header composition; the OMS library's single call site
 (A9E2 at 0x10C86) pushes exactly `[msg 2B][par1 4B][par2 4B][procInfo
 4B]` (oms-2.3.8-map.md M2); procinfo_check.c asserts 0xFB0.
+
+This establishes the contract for the generic OMS driver-entry path only;
+it does not establish that the unrelated live descriptor at `0x017D7A26`
+should contain `0x0FB0`.
 
 ## MM4. The add1device callback UPP — uppOMSDvrAdd1DevProc1Info = 0x2F0 (PROVEN)
 

@@ -133,6 +133,17 @@ capture proves that the `0x0052` value used on this path can be a Mixed Mode
 RoutineDescriptor, so the earlier raw-68K-callback interpretation is
 retracted.
 
+Static descriptor-consumer check: PROC1 `+0x1EE0` compares the word at
+`4(A7)` with `0xAAFE` and returns a Boolean. Its caller at `+0x1EF0`
+chooses among internal record tables at `object+0x18`, `object+0x20`, and
+`object+0x28`; records are traversed with `0x0E`-byte stride. This proves
+that this OMS code recognizes incoming RoutineDescriptors, but it does not
+prove that it created the live descriptor at `0x017D7A26`, nor that this
+record family is the object read at `+98B4`. A scan found no
+`NewRoutineDescriptor` call in OMS PROC1. Descriptor creator, the
+`S+0x0A` object identity, and the connection of that object to `+0x98A2`
+therefore remain unresolved.
+
 ## M5. OMS Setup PPC driver-call sites (H)
 
 `oms_setup_code1.bin` (140038 B, 68K code) contains the OMS Setup

@@ -160,6 +160,24 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   RTS target. This is distinct from the established OMS driver-entry
   `CallUniversalProc(...,0x0FB0,...)` path; `0x0FB0` remains unchanged.
 
+### P14. The proven defect is a call-site/object contract mismatch
+- `procInfo=0x00000000` is not, by itself, evidence that the live
+  RoutineDescriptor is malformed. It is a valid zero-parameter/zero-result
+  contract for whatever PPC procedure that descriptor represents.
+- PROC1 `+0x98A2` takes the `0xFFFF` branch, reserves `0x04` bytes, and
+  pushes `0xFFFF` (word) plus two zero longs before `JSR (A0)`. That frame
+  is consistent with a callee consuming `short,long,long` and returning a
+  long. The live object field at `+0x52` instead points to a descriptor
+  declaring no parameters/result, so the extra caller-built words remain
+  on the 68K stack.
+- The two live alternatives are: (1) the intended callback has a wrongly
+  constructed descriptor, or (2) `+0x98A2` received the wrong object/field
+  and `+0x52` legitimately contains a zero-argument UPP for another
+  purpose. Neither is resolved.
+- Do not substitute `0x0FB0` for the descriptor ProcInfo without proving
+  descriptor provenance. `0x0FB0` remains proven for the separate generic
+  OMS driver-entry path.
+
 ## STRONG INFERENCE
 
 ### S1. PC=FFFFFFF3 is a 68K Address Error in the OMS library's driver invocation path

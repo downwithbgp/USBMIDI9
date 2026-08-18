@@ -175,5 +175,11 @@ identity at `S+0x0A` remains unresolved.
   `MOVE.W #$FFFF,-(A7)`, and two `CLR.L -(A7)` instructions remain at
   `A7=S-0x0E` on return. `+0x98BE` then pops the first zero and `+0x98C2`
   RTS consumes the second zero. This explains the exact observed stack state.
+- This proves a call-site/object contract mismatch, not that the descriptor
+  itself is malformed. The remaining alternatives are a wrongly constructed
+  descriptor for the intended callback, or a wrong object/field supplied to
+  `+0x98A2` whose valid zero-argument UPP belongs elsewhere. The separate
+  authentic OMS entry ProcInfo `0x0FB0` must not be applied here without
+  provenance evidence.
 - The descriptor's creator, the object supplying `0x0052`, and whether
   `0x01AEDF58` is the USBMIDI9 PPCC main/transition vector remain unresolved.
