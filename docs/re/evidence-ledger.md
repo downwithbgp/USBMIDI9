@@ -131,6 +131,19 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
 - **Evidence:** docs/oms-ppcc-entry-crash.md §B (TM `.main` → code offset
   0x16c = `mflr r0`), §G.5 (TM vs E2a same call mechanism).
 
+### P12. The primary bad transfer is OMS 68K `RTS -> 00000000`; FFFFFFF3 is secondary
+- **Claim:** the PPC entry and Mixed Mode return are not the direct fault:
+  `main(0x00FF)` returns, PPC LR is sane, and the first active 68K sequence
+  pops a zero longword and then RTSes through a second zero longword. Address
+  zero's `68F1` branch produces `FFFFFFF3` only afterward.
+- **Evidence:** verbatim raw G4 single-step transcript in
+  `runtime-traces.md` T8/T9 and
+  `raw-t8-t9-breakthrough-2026-08-18.txt`; static byte match in OMS PROC 1
+  at resource offset `0x98BE`.
+- **Consequence:** direct `FFFFFFF3` pointer/JSR/JMP searches are closed.
+  The remaining static question is the malformed stack construction feeding
+  the `0x98A2` routine's post-`jsr (a0)` continuation.
+
 ## STRONG INFERENCE
 
 ### S1. PC=FFFFFFF3 is a 68K Address Error in the OMS library's driver invocation path

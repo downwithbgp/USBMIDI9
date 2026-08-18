@@ -1,0 +1,56 @@
+Major T8/T9 breakthrough: FFFFFFF3 explained mechanically.
+
+Clean native-trap build, live single-step path:
+
+E0:
+r29 = 000000FF
+r30 = 000CFBB0
+r31 = 00000001
+
+oms_handle_message(0xFF) returned successfully to main+0x191C.
+
+main restored LR = FFCEC400.
+final PPC blr successfully crossed Mixed Mode.
+first active 68K continuation:
+
+0180267E  MOVE.L (A7)+,D0
+01802680  MOVEQ #$00,D0
+01802682  RTS
+
+Before executing 0180267E:
+
+A7 = 2EB1389E
+
+2EB1389E:
+00000000 00000000 FFFF0181 55520180
+6A060158 D8E0FFFF 018154F0 00000000 ...
+
+Step 0180267E:
+
+active = 01802680
+D0 = 00000000
+A7 = 2EB138A2
+
+Step 01802680:
+
+active = 01802682 RTS
+D0 = 00000000
+A7 = 2EB138A2
+
+Step the RTS:
+
+active 68K instruction = 00000000
+A7 = 2EB138A6
+
+MacsBug disassembles address zero as:
+
+00000000  BVC.S *-$000D ; FFFFFFF3 | 68F1
+
+Therefore the RTS consumed [2EB138A2] = 00000000 as its return PC. Execution at address zero then interpreted word 0x68F1 as BVC.S with displacement -15:
+
+0x00000002 - 15 = 0xFFFFFFF3
+
+This mechanically explains the famous FFFFFFF3 crash.
+
+New root localization: the primary bad control transfer is 01802682 RTS → 00000000; FFFFFFF3 is merely a secondary branch executed from address 0.
+

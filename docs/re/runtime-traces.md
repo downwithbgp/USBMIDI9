@@ -123,3 +123,27 @@ spec/oms-re-corpus/tasks.md).
   way back to 68K — consistent with T3 (msg 0x00FF, no I0..IR fired).
 - E0→main disassembly, register mapping, and the minimal S-based next
   procedure are in docs/g4-trap-one-pass.md (T8 design).
+
+## T8/T9. Clean native-trap single-step transcript and mechanical root localization (2026-08-18)
+
+- **Raw evidence:** `raw-t8-t9-breakthrough-2026-08-18.txt` (verbatim).
+- E0 registers were `r29=000000FF`, `r30=000CFBB0`, `r31=00000001`.
+  `oms_handle_message(0xFF)` returned normally to `main+0x191C`.
+- PPC `main` restored `LR=FFCEC400`; its final `blr` crossed Mixed Mode
+  successfully. The first active 68K continuation was `0180267E`.
+- The live sequence was `MOVE.L (A7)+,D0; MOVEQ #0,D0; RTS`. Before the
+  first instruction `A7=2EB1389E`, with `[A7]=00000000` and
+  `[A7+4]=00000000`. The pop advanced A7 to `2EB138A2`; the RTS consumed
+  that second zero as its return PC.
+- Address zero contains word `68F1`, decoded by MacsBug as `BVC.S *-$000D`;
+  from PC 2, displacement -15 yields `FFFFFFF3`.
+- **Conclusion:** the primary bad transfer is `01802682 RTS -> 00000000`.
+  `FFFFFFF3` is secondary execution from address zero, not a direct pointer,
+  JSR, or JMP target.
+
+Static correlation: the exact bytes occur in the hash-pinned OMS library
+`PROC 1` (`omslib_proc1.bin`, sha256 `3655f74d…`) at resource offset
+`0x98BE`, immediately after the indirect `jsr (a0)` in the routine at
+`0x98A2`; the continuation pops the callback/result longword and then RTSes.
+The runtime address maps as `0x0180267E - 0x98BE = 0x017F87C0` load base.
+This is a resource-offset mapping, not a reusable runtime address.

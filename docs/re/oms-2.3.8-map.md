@@ -56,6 +56,32 @@ docs/oms-ppcc-entry-crash.md), SI = STRONG INFERENCE, H = HYPOTHESIS.
 |---|---|---|---|---|---|
 | library PROC 1 | 0x99B6 | generic list-dispatcher | 68K | reads msg from caller `$10(a7)`; only direct caller 0x9F4A (passes 0x23) | disasm |
 
+## M4a. Zero-return continuation reached by the T8/T9 failure (PROVEN)
+
+| component/resource | offset | proposed name | convention | inputs/outputs | evidence | confidence |
+|---|---:|---|---|---|---|---|
+| library PROC 1 | 0x98A2 | special/internal dispatch routine | 68K | tests the word at `$8(a7)`; on its special path constructs a callback call and reaches the continuation below | disasm | P |
+| library PROC 1 | 0x98BE | post-callback continuation | 68K | exact bytes `20 1F 70 00 4E 75`; pops a longword into D0, clears D0, RTS | byte match + T8/T9 | P |
+| library PROC 1 | 0x147D4 | callback/function-table entry | data | longword `0x000098A2`; indirect/table-based reference, not a direct `jsr` xref | byte scan | P |
+
+The runtime `0180267E` maps to resource offset `0x98BE` with inferred
+load base `0x017F87C0`. At runtime the continuation's first longword was
+zero (the value popped into D0), and the next longword was also zero (the
+RTS return PC). This proves the bad return stack state but does not yet
+identify which higher-level constructor supplied the missing continuation.
+
+The immediately preceding constructor is visible at `0x98AA–0x98BC`:
+`subq.w #4,(a7)`, push word `-1`, push two zero longwords, load an indirect
+function pointer from `+$52`, and `jsr (a0)`. On return, `0x98BE` pops one
+of those constructed zero longwords as D0; its RTS then sees the next
+constructed zero instead of a valid continuation. Thus `[A7]` at the
+continuation is the zero result/temporary slot, while `[A7+4]` is supposed
+to be the caller continuation but is zero in this invocation. The exact
+owner of the `+$52` function pointer and the Mixed Mode/UniversalProc
+contract that should preserve or remove the temporary slots remain the
+next static target; no contradiction to `uppOMSDriverProcInfo=0xFB0` has
+been established.
+
 ## M5. OMS Setup PPC driver-call sites (H)
 
 `oms_setup_code1.bin` (140038 B, 68K code) contains the OMS Setup
