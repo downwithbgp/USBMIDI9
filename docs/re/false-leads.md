@@ -20,3 +20,4 @@ cited.
 | F11 | "DebugStr caused the production crash" | **RETRACTED** | DebugStr did NOT cause the crash; it only invalidated the DebugStr-based instrumentation (P9) — the crash is the 68K FFFFFFF3 fault (S1) |
 | F12 | E-series manual PEF patching as the way forward | **CLOSED** | E1/E2a showed the entry-call path is exercised; E2b invalid; the real fix was the linker Main:main setting; "No E2c" (docs/oms-ppcc-entry-crash.md §H) |
 | F13 | A direct OMS pointer/JSR/JMP target equal to `FFFFFFF3` explains the crash | **RETRACTED / HARD-CLOSED** | clean native-trap single-step proves `RTS` first consumes `[A7+4]=00000000`; address zero then executes `68F1` and branches to `FFFFFFF3` secondarily (runtime-traces T8/T9; raw transcript) |
+| F14 | `JSR (A0)` at PROC1 +0x98BC proves A0 is raw 68K code | **RETRACTED** | live A0 begins with Mixed Mode magic `0xAAFE`; 68K JSR to a RoutineDescriptor is a valid Mixed Mode dispatch (runtime-traces T8/T9-A0) |

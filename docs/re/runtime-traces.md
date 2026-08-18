@@ -158,3 +158,22 @@ earlier claim that `0x98B4` reads `S+0x04` and that the two zero words were
 already identified as result-slot/return-PC is corrected: at the observed
 SP they are the two `CLR.L` values at `S-0x0E` and `S-0x0A`; the object
 identity at `S+0x0A` remains unresolved.
+
+## T8/T9-A0. Indirect target is a Mixed Mode RoutineDescriptor (2026-08-18)
+
+- **Raw evidence:** `raw-t8-t9-a0-routinedescriptor-2026-08-18.txt`.
+- Immediately before `PROC 1 +0x98BC JSR (A0)`, live `A0=0x017D7A26`.
+- Memory at that address begins with `0xAAFE`, the Mixed Mode magic. The
+  relevant RoutineRecord fields decode as `procInfo=0x00000000`,
+  `ISA=0x01` (PowerPC), `routineFlags=0x0004`, and
+  `procDescriptor=0x01AEDF58`.
+- **Correction:** a 68K `JSR` to a UniversalProcPtr may enter Mixed Mode
+  directly when the target is a RoutineDescriptor. `JSR (A0)` therefore does
+  not establish that A0 is raw 68K code.
+- With descriptor ProcInfo zero, Mixed Mode declares no parameters and no
+  result/argument cleanup. The caller's `SUBQ.W #4,A7`,
+  `MOVE.W #$FFFF,-(A7)`, and two `CLR.L -(A7)` instructions remain at
+  `A7=S-0x0E` on return. `+0x98BE` then pops the first zero and `+0x98C2`
+  RTS consumes the second zero. This explains the exact observed stack state.
+- The descriptor's creator, the object supplying `0x0052`, and whether
+  `0x01AEDF58` is the USBMIDI9 PPCC main/transition vector remain unresolved.

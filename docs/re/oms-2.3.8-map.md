@@ -89,7 +89,7 @@ error: it is `0x600` below the correct base and would map `0x98BE` to
 | component/resource | offset | proposed name | convention | inputs/outputs | evidence | confidence |
 |---|---:|---|---|---|---|---|
 | library PROC 1 | 0x98A2 | special/internal dispatch routine | 68K | tests word at `0x0008(A7)`; special path constructs a callback call and reaches the continuation below | raw bytes + disasm | P |
-| library PROC 1 | 0x98BE | post-callback continuation | 68K | exact bytes `20 1F 70 00 4E 75`; pops a longword into D0, clears D0, RTS | byte match + T8/T9 | P |
+| library PROC 1 | 0x98BE | post-Mixed-Mode continuation | 68K | exact bytes `20 1F 70 00 4E 75`; pops a longword into D0, clears D0, RTS | byte match + T8/T9-A0 | P |
 | library PROC 1 | 0x147D0 | suspected function-pointer table region | data | neighboring longwords include `0x0000A3E8`, `0x000098A2`, `0x0000E17C`; no code reference to the table address was found in the extracted PROC 1 | raw data scan | SI |
 
 The runtime `0x0180267E` maps to resource, executable, and PROC-relative
@@ -128,7 +128,10 @@ The data at `0x147D0` is a candidate table because it contains neighboring
 function-like offsets, including `0x000098A2`; however, the extracted PROC
 1 has no literal code reference to `0x147D0`/`0x147D4`. Its table consumer,
 base, stride, and argument construction remain unresolved. No contradiction
-to `uppOMSDriverProcInfo=0x0FB0` has been established.
+to `uppOMSDriverProcInfo=0x0FB0` has been established. The later runtime
+capture proves that the `0x0052` value used on this path can be a Mixed Mode
+RoutineDescriptor, so the earlier raw-68K-callback interpretation is
+retracted.
 
 ## M5. OMS Setup PPC driver-call sites (H)
 

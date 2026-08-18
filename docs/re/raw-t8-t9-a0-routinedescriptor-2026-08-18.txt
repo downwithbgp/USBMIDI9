@@ -1,0 +1,14 @@
+Major new evidence — live A0 immediately before PROC1 +98BC JSR (A0):
+
+017D7A26 AAFE 0700 0000 0000 0000 0000 0000 0000
+017D7A36 0001 0004 01AE DF58 0000 0000 0000 0000
+017D7A46 018B F6D0 0000 0000 0000 0000 5553 4D39
+017D7A56 1355 5342 4D49 4449 3920 4F4D 5320 4472
+
+Live A0 = 017D7A26.
+The object begins with Mixed Mode magic AAFE. The relevant RoutineRecord
+decodes as procInfo=00000000, ISA=01 (PowerPC), routineFlags=0004, and
+procDescriptor=01AEDF58.
+
+This corrects the prior assumption that JSR (A0) implied raw 68K code:
+68K JSR to a RoutineDescriptor enters Mixed Mode through the AAFE trap.

@@ -147,6 +147,19 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   `S`, the load reads `S+0x0A`, not `S+0x04`; only the separate `0x0052`
   displacement at `0x98B8` is proven as an object-field offset.
 
+### P13. The `+0x98BC` target is a Mixed Mode RoutineDescriptor with ProcInfo zero
+- **Claim:** live A0 before `+0x98BC JSR (A0)` was `0x017D7A26`, whose bytes
+  begin with `0xAAFE`; its relevant RoutineRecord has
+  `procInfo=0x00000000`, PowerPC ISA, `routineFlags=0x0004`, and
+  `procDescriptor=0x01AEDF58`.
+- **Evidence:** raw transcript in `runtime-traces.md` T8/T9-A0 and
+  `raw-t8-t9-a0-routinedescriptor-2026-08-18.txt`.
+- **Consequence:** 68K `JSR (A0)` entered Mixed Mode. ProcInfo zero explains
+  why the caller's pushed `FFFF,0,0` frame was not unmarshaled/cleaned:
+  the return reached `+0x98BE` with A7 still at `S-0x0E`, producing the zero
+  RTS target. This is distinct from the established OMS driver-entry
+  `CallUniversalProc(...,0x0FB0,...)` path; `0x0FB0` remains unchanged.
+
 ## STRONG INFERENCE
 
 ### S1. PC=FFFFFFF3 is a 68K Address Error in the OMS library's driver invocation path

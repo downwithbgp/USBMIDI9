@@ -14,11 +14,12 @@ All ProcInfo decodes are mechanically reproduced by
   ProcInfo tells the Mixed Mode Manager the calling convention, the
   result size, and the argument layout (stack and/or registers) — it
   must match the actual routine.
-- **A direct call of a UPP executes the descriptor's bytes as code.**
-  On PPC that is an Address Error (the descriptor is data). PROVEN by
-  b88c5a7: the production driver crashed when `add1Device` (an
-  OMSDvrAdd1DevProc1UPP) was invoked directly; the fix routes every
-  call through the trampoline `CallOMSDvrAdd1DevProc1`.
+- A 68K `JSR` to a UPP/RoutineDescriptor is a valid Mixed Mode entry: the
+  `0xAAFE` descriptor trap dispatches according to its RoutineRecord. A PPC
+  direct call to a 68K UPP is different and can execute descriptor data as
+  code. The b88c5a7 evidence concerns the PPC-side add1Device UPP call and
+  still requires `CallOMSDvrAdd1DevProc1`; it does not invalidate the 68K
+  `JSR (A0)` behavior observed in T8/T9-A0.
 
 ## MM2. ProcInfo bit layout (authentic UI 3.3.2 MixedMode.h)
 
