@@ -12,3 +12,13 @@ procDescriptor=01AEDF58.
 
 This corrects the prior assumption that JSR (A0) implied raw 68K code:
 68K JSR to a RoutineDescriptor enters Mixed Mode through the AAFE trap.
+
+Follow-up live capture:
+
+PROC1 base=0189DB90; active +98BE=018A744E.
+A7=2EB55A6E; A2=01809EE0; A0 after return=01809F46.
+[A7+0]=00000000; [A7+4]=00000000; [A7+8] begins FFFF.
+[A7+0x18]=[2EB55A86]=01809EE0, proving OBJ=A2.
+OBJ+0x52=01809F32 contains 01809F46, and OBJ+0x66=01809F46.
+The descriptor at 01809F46 therefore has procInfo=00000000, ISA=01,
+routineFlags=0004, and procDescriptor=018E9B78.

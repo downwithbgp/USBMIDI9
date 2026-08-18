@@ -178,6 +178,21 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   descriptor provenance. `0x0FB0` remains proven for the separate generic
   OMS driver-entry path.
 
+### P15. The `+98B4` source object and historical loader field are identical
+- **Claim:** In the live run, `OBJ=A2=0x01809EE0` is proven. At
+  `PROC1+0x98BE`, `A7=0x2EB55A6E`; `[A7+0x18]` is read from `0x2EB55A86`
+  and contains `0x01809EE0`.
+- **Field evidence:** `OBJ+0x52=0x01809F32` contains `0x01809F46`, and
+  `OBJ+0x66=0x01809F46`. The live `+0x52` field is therefore an interior
+  pointer to the same record's `+0x66`, matching the historical loader
+  relationship.
+- **Descriptor evidence:** `0x01809F46` begins `0xAAFE` and contains a
+  valid Mixed Mode RoutineRecord with `procInfo=0x00000000`, PowerPC ISA,
+  `routineFlags=0x0004`, and `procDescriptor=0x018E9B78`.
+- **Consequence:** the wrong-object alternative is closed for this path.
+  The proven mismatch is between the `+98A2` frame and the valid
+  zero-argument descriptor stored in the loader record's `+0x52`.
+
 ## STRONG INFERENCE
 
 ### S1. PC=FFFFFFF3 is a 68K Address Error in the OMS library's driver invocation path

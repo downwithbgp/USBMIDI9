@@ -26,6 +26,30 @@ All ProcInfo decodes are mechanically reproduced by
   still requires `CallOMSDvrAdd1DevProc1`; it does not invalidate the 68K
   `JSR (A0)` behavior observed in T8/T9-A0.
 
+The SDK struct layout is byte-stable under its `#pragma pack(2)` /
+`align=mac68k` branch:
+
+```text
+RoutineDescriptor
+  +0x00  UInt16  goMixedModeTrap
+  +0x02  SInt8   version
+  +0x03  UInt8   routineDescriptorFlags
+  +0x04  UInt32  reserved1
+  +0x08  UInt8   reserved2
+  +0x09  UInt8   selectorInfo
+  +0x0A  UInt16  routineCount
+  +0x0C  RoutineRecord[0]
+
+RoutineRecord
+  +0x00  UInt32  procInfo
+  +0x04  SInt8   reserved1
+  +0x05  ISAType ISA
+  +0x06  UInt16  routineFlags
+  +0x08  ProcPtr procDescriptor
+  +0x0C  UInt32  reserved2
+  +0x10  UInt32  selector
+```
+
 ## MM2. ProcInfo bit layout (authentic UI 3.3.2 MixedMode.h)
 
 Field widths: callingConvention 4, resultSize 2, stackParameter 2,
