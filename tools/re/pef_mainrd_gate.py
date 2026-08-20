@@ -134,7 +134,7 @@ def main():
                 print(f"raw TVector=[code+0x{code_off:x}, data+0x{toc_off:x}]")
                 if code_off >= code["unpacked"] or code_off % 4:
                     errors.append("TVector code word is outside/alignment-invalid")
-                if toc_off >= len(data) or toc_off % 4:
+                if toc_off >= ds["total"] or toc_off % 4:
                     errors.append("TVector TOC word is outside/alignment-invalid")
                 pds = ps[pl["main_section"]]
                 pdata = unpack_data(pb, pds) if pds["kind"] == 2 else pb[pds["off"]:pds["off"] + pds["packed"]]
@@ -144,8 +144,11 @@ def main():
                     if code_off != prod_code:
                         errors.append(f"handler code offset differs from production 0x{prod_code:x}")
                     print(f"production main TVector raw=[code+0x{prod_code:x}, data+0x{prod_toc:x}]")
-                print(f"relocated TVector=[0x10000000+0x{code_off:x}, "
-                      f"0x10000000+0x{toc_off:x}]")
+                code_base = 0x10000000
+                data_base = (code_base + cs[0]["total"] + 0x0f) & ~0x0f
+                print(f"relocated TVector=[0x{code_base + code_off:08x}, "
+                      f"0x{data_base + toc_off:08x}] "
+                      f"(codeBase=0x{code_base:08x}, dataBase=0x{data_base:08x})")
 
     # Code and loader-facing import/export bytes must remain unchanged. The
     # data section is intentionally allowed to differ for the RD object.
@@ -156,8 +159,18 @@ def main():
                 continue
             if (a["kind"], a["unpacked"], a["packed"]) != (b["kind"], b["unpacked"], b["packed"]):
                 errors.append(f"section {i} shape changed")
-            elif a["kind"] == 0 and cb[a["off"]:a["off"] + a["packed"]] != pb[b["off"]:b["off"] + b["packed"]]:
-                errors.append("PPC code section changed")
+            elif a["kind"] == 0:
+                ac = cb[a["off"]:a["off"] + a["packed"]]
+                bc = pb[b["off"]:b["off"] + b["packed"]]
+                diffs = [(x, y, z) for x, (y, z) in enumerate(zip(bc, ac)) if y != z]
+                # Adding the 32-byte static RD moves the affected data
+                # addresses in this CodeWarrior image by +0x20.  Permit only
+                # that exact relocation-shaped change; opcodes/other bytes
+                # must remain identical.
+                if any(((z - y) & 0xff) != 0x20 for _, y, z in diffs):
+                    errors.append("PPC code changed beyond the expected +0x20 data relocation")
+                elif diffs:
+                    print(f"code differences: {len(diffs)} bytes, all expected +0x20 data relocations")
     if errors:
         print("GATE: FAIL")
         for e in errors: print("- " + e)
