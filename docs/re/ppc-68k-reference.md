@@ -153,14 +153,18 @@ stored callable pointer has this embedded value.
 The USBMIDI9 descriptor experiment captured this topology:
 
 ```text
-record+0x52 -> outer AAFE descriptor, ProcInfo = 0
-                 -> nested AAFE descriptor, ProcInfo = 0x0FB0
-                    -> PPC transition vector
+record+0x52 = record+0x66 -> OMS-record outer AAFE descriptor, ProcInfo = 0
+                              -> procDescriptor = nested AAFE bytes
+                                 nested ProcInfo = 0x0FB0
+                                 nested procDescriptor = PPC transition vector
 ```
 
-Thus a static descriptor containing `0x0FB0` is not necessarily the exact
-descriptor CFM returns for a fragment main symbol. The outer descriptor's
-embedded ProcInfo controls a direct 68K call through the outer pointer.
+The later transition capture proves that this is not recursive descriptor
+parsing. Mixed Mode loads the outer `procDescriptor` as a PPC transition-vector
+address; if that address is itself an AAFE object, its first longword is read
+as a code address. The nested object is therefore an observed data layout, not
+a second descriptor invocation. The outer descriptor's embedded ProcInfo
+controls a direct 68K call through the outer pointer.
 
 ## 6. CFM and transition vectors
 

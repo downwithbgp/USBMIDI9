@@ -196,13 +196,13 @@ Because no pre-call breakpoint was armed, `User break at 2F6B2E96` does not
 identify whether the direct `+98A2` call survived and is not crash evidence
 for or against the descriptor hypothesis.
 
-## Runtime result: CFM wraps the static descriptor (2026-08-20)
+## Runtime result: nested AAFE bytes are not recursively parsed (2026-08-20)
 
 At the USBMIDI9 record's direct `+98BC JSR (A0)` stop:
 
 ```text
 A2 = 01845150                 USBMIDI9 record
-A0 = 018451B6                 record+0x66 / record+0x52 result
+A0 = 018451B6                 record+0x66 (the value of record+0x52)
 
 018451B6  AAFE 0700 0000 0000 0000 0000 0000 0000
 018451C6  0001 0004 01B5 ADDC 0000 0000 0000 0000
@@ -219,17 +219,40 @@ That address contains a second descriptor:
 Thus the exact runtime topology is:
 
 ```text
-record+0x52 -> outer CFM descriptor (ProcInfo 0)
-                 -> procDescriptor = static inner RoutineDescriptor
-                    inner ProcInfo = 0x0FB0
-                    inner procDescriptor = 01B5AC88
+record+0x52 = record+0x66 -> OMS-record outer descriptor (ProcInfo 0)
+                              -> procDescriptor = 01B5ADDC
+                                 inner descriptor bytes have ProcInfo 0x0FB0
+                                 inner procDescriptor = 01B5AC88
 ```
 
-The raw PEF was therefore packaged and loaded correctly, but CFM did not
-return the static descriptor address directly. It materialized an outer
-zero-ProcInfo descriptor for the fragment main symbol. A direct JSR through
-`record+0x52` still consults the outer zero ProcInfo, so the descriptor-main
-experiment cannot repair the direct-JSR adapter contract by itself.
+The raw PEF was packaged and loaded correctly. The loader copied the outer
+descriptor into the OMS record at `record+0x66` and aliased `record+0x52` to
+that address. The evidence does not yet establish that OMS's outer object was
+constructed by CFM, so it is documented here as the OMS-record outer
+descriptor, not as a proven “CFM wrapper.”
+
+Mixed Mode's transition code was captured directly:
+
+```asm
+lwz    r12,0x0008(r29)   ; r29 = outer + 0x0C
+lwz    r0,0x0000(r12)    ; r12 = outer + 0x14 = 01B5ADDC
+lwz    r2,0x0004(r12)
+mtctr  r0
+bctrl
+```
+
+Consequently, Mixed Mode treats the outer `procDescriptor` as a PPC
+transition-vector address. It does not recursively parse the AAFE object at
+`01B5ADDC`: it loads that object's first longword, `AAFE0700`, as the PPC
+code address. The supposed inner descriptor does contain a valid-looking PPC
+transition vector at `01B5AC88` (`code=01956030`, `TOC=01862C00`), but that
+vector is not what this outer transition sequence branches to.
+
+A direct `JSR` through `record+0x52` therefore reaches the outer descriptor
+and consults its zero ProcInfo before this malformed descriptor-to-descriptor
+interpretation. The attempted `A0=01B5ADDC` bypass is not evidence of a
+successful direct call: OMS reloaded the outer pointer before the Mixed Mode
+transition.
 
 This runtime result disproves the narrower causal fix:
 
@@ -249,8 +272,9 @@ PEF Main can identify a data address                         PROVEN
 CFM infers 0x0FB0 from a function main                       DISPROVEN
 CodeWarrior accepts this data symbol as Main                 PROVEN
 CFM returns that same RD unchanged                            DISPROVEN
-CFM wraps static RD in outer ProcInfo-0 RD                    PROVEN
-RD pointer resolves to handler TVector                        PROVEN for inner RD layout
+OMS-record outer descriptor is a recursive CFM wrapper          RETRACTED/UNPROVEN
+Outer procDescriptor is treated as a PPC transition vector     PROVEN
+Inner object contains a valid PPC transition vector            PROVEN
 Current direct path uses embedded ProcInfo=0                  PROVEN
-Changing Main to a static 0x0FB0 RD fixes the crash             DISPROVEN
+Static descriptor-main experiment fixes this direct path       DISPROVEN
 ```

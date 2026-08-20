@@ -368,6 +368,32 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   `uppOMSDriverProcInfo=0x0FB0` is supplied separately at the A9E2
   `CallUniversalProc` site and is not copied into this descriptor.
 
+### P23. RD2 proves non-recursive interpretation of the nested AAFE bytes
+- **Claim:** At the failing transition, the outer descriptor was at
+  `018451B6`, with `R29=018451C2` (`outer+0x0C`) and
+  `procDescriptor=01B5ADDC`. Mixed Mode executed:
+
+  ```asm
+  lwz r12,0x0008(r29)
+  lwz r0,0x0000(r12)
+  lwz r2,0x0004(r12)
+  mtctr r0
+  bctrl
+  ```
+
+  The first longword at `01B5ADDC` was `AAFE0700`, so the outer transition
+  sequence treated the nested AAFE bytes as a PPC transition vector rather
+  than recursively parsing them.
+- **Claim:** The nested object contains a valid-looking transition vector at
+  `01B5AC88`: code `01956030`, TOC `01862C00`. This does not prove that the
+  captured outer transition used it.
+- **Claim:** The runtime pointer relation is `A0=A2+0x66`; the value stored in
+  `record+0x52` points to that record-resident address. Calling `A0` itself
+  “record+0x52” is incorrect.
+- **Status:** PROVEN from the preserved RD2 live register and memory capture.
+  The owner/constructor of the outer record descriptor remains unresolved;
+  “CFM wrapper” is not an established identity.
+
 ### S9. Public CFM documentation does not settle mainAddr's embedded ProcInfo
 - **Proven from Apple material:** `GetDiskFragment` returns `mainAddr` as
   the fragment's main entry point. Apple Mixed Mode material separately
