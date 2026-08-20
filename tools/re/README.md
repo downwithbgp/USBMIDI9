@@ -51,6 +51,9 @@ Run the smoke tests: `make check-re-tools` (or `tools/re/smoke.sh`).
   header; symbol table 4B/entry; names are C-strings in the loader
   strings area).
 - `pef_loaderinfo.py` — mainSection/initSection/termSection now printed
+- `pef_mainrd_gate.py` — pre-runtime gate for the isolated static
+  RoutineDescriptor special-main experiment; compares candidate to production
+  while allowing only the intended data-section change.
   as SInt32 (-1 = none).
 - `procinfo_check.c` — extended with the stack-based decodes
   (uppOMSDriverProcInfo=0xFB0, uppOMSDvrAdd1DevProc1Info=0x2F0) on top
