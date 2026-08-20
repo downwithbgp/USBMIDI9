@@ -199,10 +199,17 @@ direct zero-ProcInfo call causes malformed SP   PROVEN
 returned 0x00FF value becomes structural data  DISPROVEN statically
 ```
 
+The static-main alternative is documented separately in
+`docs/re/ppcc-main-routine-descriptor-experiment.md`. Apple explicitly
+documents both pieces needed for that experiment: a fragment main symbol may
+be a data structure, and static Mixed Mode routine descriptors may be built
+with `BUILD_ROUTINE_DESCRIPTOR`. Those facts make the experiment valid, but
+the CodeWarrior-generated PEF and one isolated G4 A/B are still required
+before classifying it as the USBMIDI9 fix.
+
 No source fix is justified yet. The evidence points to the OMS native
 adapter/CFM contract boundary, not a USBMIDI9 message handler. The one
 decisive A/B, if needed, is to compare the generated record `+0x52/+0x66`
 descriptor bytes for the missing successful minimal PEF against production,
 with identical outer resources and valid special main. No guessed `0x00FF`
 return value should be used as a workaround.
-
