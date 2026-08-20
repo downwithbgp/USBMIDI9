@@ -199,7 +199,9 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
 ### P16. The live RoutineDescriptor targets the PPC main transition vector
 - **Claim:** The live `procDescriptor` value `0x018E9B78` contains
   `[0x018E8C80, 0x018F1AF0]`. With current PPCC base `0x018E73B0`, the
-  code address is code offset `0x1650`, matching the PPC `main` prologue;
+  code address is container/runtime offset `0x18D0`, matching the PPC
+  `main` prologue; its code-section-relative offset is `0x1650` because the
+  code section begins at container offset `0x280`;
   the second longword is its TOC. The following pair
   `[0x018E8304,0x018F1AF0]` is a neighboring vector.
 - **Confidence:** PROVEN from the live target dump and current trace PEF
