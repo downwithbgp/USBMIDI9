@@ -76,6 +76,15 @@ notes = "code containerOffset 0xE2 not 16-aligned -> invalid PEF; carries no evi
 # --- Proprietary Opcode/Apple binaries (hash-only; NOT committed) ---
 
 [[artifact]]
+name = "macsbug_usb_midi0_2026_08_20"
+path = "MacsBug-logs/USBMIDI0-MACSBUG.LOG"
+sha256 = "3956d509bcccbe8ca6806404fe776f9534f43782046a89294f595d09c3e53a0f"
+size = 67060
+source = "fresh-boot OMS Setup Search MacsBug transcript"
+status = "known-good evidence; ordinary-driver walk; USBMIDI9 not captured"
+notes = "Raw CR-delimited transcript preserved without normalization or rewriting."
+
+[[artifact]]
 name = "omslib_proc1"
 sha256 = "3655f74d202c29db3b45eb83a122642b5e989de08c84f4d52e010e449920cc07"
 size = 86507

@@ -1,0 +1,22 @@
+Latest live stack/caller mapping for the +98A2 invocation
+
+PROC1 runtime mapping:
+
+01867A82 = PROC1 +0x98A2
+01867A9E = PROC1 +0x98BE
+PROC1 base = 0185E1E0
+
+At +98BE before MOVE.L (A7)+,D0:
+
+A7 = 2DE935FE = S-0x0E
+Therefore S = 2DE9360C.
+
+The unaligned entry frame decodes as:
+
+[S+0x00] = 0186BE26  wrapper caller return PC
+[S+0x08] = FFFF      selector
+[S+0x0A] = 017BA020  source/object value
+
+0186BE26 - 0185E1E0 = 0xDC46.
+
+Static PROC1 +0xDC44 is JSR (A1), so +0xDC46 is its return address.

@@ -159,6 +159,32 @@ already identified as result-slot/return-PC is corrected: at the observed
 SP they are the two `CLR.L` values at `S-0x0E` and `S-0x0A`; the object
 identity at `S+0x0A` remains unresolved.
 
+## T10. Final PPC return and second zero-RTS capture (2026-08-18)
+
+- **Raw evidence:** `raw-t10-zero-rts-2026-08-18.txt`.
+- PPC `main` reached its final `blr` with `LR=FFCEC400`; Mixed Mode returned
+  to 68K and stopped at `01867A9E`, the continuation after the indirect
+  callback in the +98A2-shaped wrapper.
+- Before `MOVE.L (A7)+,D0`, `A7=2DE935FE`, with zero longwords at `[A7]` and
+  `[A7+4]`. The pop advanced A7 to `2DE93602`; immediately before `RTS`,
+  `[A7]=00000000`. Stepping the RTS produced `PC=00000000`.
+- **PROVEN:** the immediate fault is the malformed callback-return stack →
+  `MOVE.L` consumes the first zero → `RTS` consumes the second zero.
+  `FFFFFFF3` is downstream execution from address zero.
+
+## T11. Loader call site for the +98A2 wrapper (2026-08-18)
+
+- **Raw evidence:** `raw-t11-dc46-caller-2026-08-18.txt`.
+- The live mapping was `PROC1 base=0185E1E0`, `+98A2=01867A82`,
+  `+98BE=01867A9E`. With `A7=S-0x0E` at `+98BE`, `S=2DE9360C`.
+- The entry frame contained `[S]=0186BE26`, `[S+0x08]=FFFF`, and
+  `[S+0x0A]=017BA020`.
+- `0186BE26-0185E1E0=0xDC46`. Static `PROC1+0xDC44` is `JSR (A1)`,
+  proving that `+0xDC46` is the return address of that call.
+- **PROVEN:** the loader/materialization routine invokes the wrapper through
+  the indirect `A1` target immediately after constructing the frame; the
+  selector is the pushed `FFFF` and the source is the pushed driver record.
+
 ## T8/T9-A0. Indirect target is a Mixed Mode RoutineDescriptor (2026-08-18)
 
 - **Raw evidence:** `raw-t8-t9-a0-routinedescriptor-2026-08-18.txt`.
@@ -188,3 +214,23 @@ identity at `S+0x0A` remains unresolved.
   observation proves the tuple on that separate path.
 - The descriptor's creator, the object supplying `0x0052`, and whether
   `0x01AEDF58` is the USBMIDI9 PPCC main/transition vector remain unresolved.
+
+## T12. Fresh-boot ordinary-driver walk (2026-08-20)
+
+- **Raw evidence:** `MacsBug-logs/USBMIDI0-MACSBUG.LOG`; SHA-256
+  `3956d509bcccbe8ca6806404fe776f9534f43782046a89294f595d09c3e53a0f`.
+- This session did not capture USBMIDI9 or the PPC `main(0x00FF,...)` stop. It
+  reached `PROC1+0x98BC` at `01876FAC` with base `0186D6F0` while walking an
+  ordinary SampleCell record, then later MWM and Studio 64XTC records.
+- The `+0x52` target was `01617490`, MacsBug-labeled `OMdv 0080 05FE`, and
+  branched to a real 68K handler at `01617934`. Its epilogue at `016179A0`
+  writes the result, restores caller PC `0187B336`, removes `0x0A` bytes,
+  and jumps to that PC. At the return stop `[A7]=00000000` and
+  `[A7+4]=0187B336`; the outer wrapper then returns normally.
+- **Correction:** the previous blanket interpretation that `+98A2` callbacks
+  fail to clean the Pascal frame is falsified. Retain T8/T9-A0 only as a
+  separate historical USB/PPCC zero-ProcInfo descriptor observation.
+- Static byte audit corrected the native loader at `PROC1+0xDC38` to
+  `MOVE.L (A2),-(A7)`. The method topology is `O0=[A2]`,
+  `O1=[O0+0x0C]`, `method=[O1+0x0C]`, then `JSR (method)`; it is not
+  `A0=A2; [A2+0x0C]`.

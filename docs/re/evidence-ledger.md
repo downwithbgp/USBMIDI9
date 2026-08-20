@@ -242,18 +242,19 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   not yet the proven consumer of the raw `+0x147D4` word or the proven live
   caller of `+0x98A2`. The final OMS-vs-driver root cause remains open.
 
-### S4. `+0x98A2` has no resolved direct PROC1 caller
-- **Claim:** the raw word `000098A2` at `PROC1+0x147D4` is not yet a
-  proven indirect-table edge. A complete scan of the extracted PROC1
-  found no direct `BSR/JSR` target to `+0x98A2` and no identified in-code
-  consumer of the `+0x147D0` region.
-- **Evidence:** raw-byte scan of `omslib_proc1.bin`; the only occurrence of
-  `000098A2` is at `+0x147D4`; `+0x98A2` is not reached by a direct
-  PC-relative call in the blob.
-- **Consequence:** the exact producer of the live entry word `S+0x08 =
-  0xFFFF` and object pointer `S+0x0A` cannot be claimed statically from
-  this artifact. The next decisive runtime value, if needed, is the return
-  PC at `[A7]` on entry to `+0x98A2`.
+### P23. Loader +0xDC44 is the proven caller of the live +0x98A2 invocation
+- **Claim:** the live wrapper return PC was `0186BE26`; with PROC1 base
+  `0185E1E0`, this is `PROC1+0xDC46`. Static bytes at `+0xDC44` are
+  `JSR (A1)`, so `+0xDC46` is its return address.
+- **Claim:** immediately before that call, the loader executes:
+  `CLR.L -(A7)`; `MOVE.L A2,-(A7)`; `MOVE.W #$FFFF,-(A7)`;
+  `MOVE.L (A2),-(A7)`; `MOVEA.L (A7),A0`;
+  `MOVEA.L 0x0C(A0),A1`; `MOVEA.L 0x0C(A1),A1`; `JSR (A1)`.
+- **Evidence:** PROC1 bytes `+0xDC30..+0xDC46` and raw live frame:
+  `[S]=0186BE26`, `[S+0x08]=FFFF`, `[S+0x0A]=017BA020`.
+- **Consequence:** the loader deliberately supplies `FFFF` and the same
+  driver-record pointer to the indirect target. The raw `+0x147D4=98A2`
+  word is not needed for this call edge and remains unrelated/unresolved.
 
 ### S5. A second generic `object+0x52` consumer exists
 - **Claim:** `+0xE160` directly loads `object+0x52`, forwards an incoming
@@ -261,6 +262,140 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
 - **Evidence:** disassembly at `+0xE160` through `+0xE178`.
 - **Caveat:** no static edge connects `+0xE160` to the raw `+0x147D4`
   word or to the live `+0x98A2` invocation.
+
+### P24. The dispatch topology is two `+0x0C` dereferences
+- **Claim:** the loader's `+0xDC44` target is resolved as
+  `O0=[A2]; A0=O0; A1=[O0+0x0C]; A1=[A1+0x0C]; JSR (A1)`. The live invocation
+  proves the final value was `PROC1+0x98A2`.
+- **Writers:** static code initializes several object `+0x0C` fields from
+  A4-relative method objects around `+0x3292..+0x32F2`; a relocation/copy
+  path at `+0xD584` rewrites an object `+0x0C` through the pointer mapper
+  at `+0xD2B0`. These writes are proven, but the artifact does not bind
+  one writer to live record `017BA020`.
+- **Status:** call topology PROVEN; exact intermediate object/table identity
+  is unresolved statically. The orphan `+0x147D4` word is not required by
+  the proven runtime chain.
+
+### S10. Loader commits the method/pointer combination after materialization
+- **Proven:** after PPC `GetDiskFragment` materialization and
+  `record+0x52 = &record+0x66`, the common loader block pushes `FFFF` and
+  the record, resolves the two-level method pointer, and calls it.
+- **Proven for the captured run:** that method is `+0x98A2`, and its
+  `record+0x52` target is the captured `procInfo=0` PPC RoutineDescriptor.
+- **UNKNOWN:** whether `+0x98A2` is the intended adapter for every PPC OMS
+  driver or whether metadata/dispatch-object selection assigned the wrong
+  adapter to USBMIDI9.
+
+### P25. Static `+0x0C` writers are multiple object initializers/relocators
+- **Claim:** syntactic writes to `0x0C(A2)` occur at `+0x1CFE`,
+  `+0x3292`, `+0x329A`, `+0x32A2`, `+0x32E2`, `+0x32EA`, `+0x32F2`,
+  `+0x3332`, `+0x333A`, `+0x3342`, `+0x3B56`, `+0x4770`, `+0x676C`,
+  `+0x6774`, `+0x67D6`, `+0xD584`, and `+0xDFE8`.
+- **Claim:** the `+0x3292..+0x32F2`, `+0x676C..+0x6774`, `+0x4770`, and
+  `+0xDFE8` families assign A4-relative method objects; `+0xD584` assigns
+  the result of the pointer mapper at `+0xD2B0`.
+- **Status:** PROVEN as code writes. Which writer initialized live record
+  `017BA020`, and which intermediate object contains `+0x98A2`, remains
+  unresolved without the object addresses/contents.
+
+### S11. Neighboring `+0x147D0` words are not yet proven as the active method table
+- **Candidate data:** `+0x147D0` contains neighboring code offsets
+  `0xDEC6`, `0x95D6`, `0xA3E8`, `0x98A2`, and `0xE17C`.
+- **Sibling observations:** `+0x95D6` handles an `OMdv` resource/byte path;
+  `+0xA3E8` allocates/initializes an object; `+0xE17C` performs an indirect
+  two-longword comparison/list operation; `+0xDEC6` handles a record and
+  byte flag. These are not enough to establish a shared vtable or common
+  ProcInfo contract.
+- **Status:** HYPOTHESIS. No static reference binds this data block to the
+  two-level `+0x0C` chain selected for the live driver record.
+
+### P19. Latest run re-proves zero-RTS, not the static caller
+- **Claim:** PPC `main` reached its final `blr`, Mixed Mode returned to 68K,
+  and the post-callback continuation ran with `A7=2DE935FE`, `[A7]=0`, and
+  `[A7+4]=0`. After `MOVE.L (A7)+,D0`, `RTS` consumed the next zero and
+  produced `PC=00000000`.
+- **Evidence:** `docs/re/raw-t10-zero-rts-2026-08-18.txt`.
+- **Consequence:** the immediate malformed-stack transfer is PROVEN;
+  `FFFFFFF3` is downstream. This capture does not identify the static
+  caller of `+0x98A2` or the current value of its `0x18(A7)` source.
+
+### P20. Corrected wrapper provenance is `S+0x0A`, not `S+0x04`
+- **Claim:** with entry SP `S`, `+0x98A2` tests `[S+0x08]`; after its
+  `SUBQ.W #4,A7` and three pushes, `+0x98B4` loads `[S+0x0A]` because its
+  raw displacement is `0x0018` (`+24` decimal).
+- **Evidence:** the raw PROC1 bytes documented in M4a.
+- **Consequence:** only `source=[S+0x0A]`, `target=[source+0x52]`, and the
+  indirect `JSR` are statically proven. “First argument” and “callback
+  object” remain unproven until the caller constructs the frame. Any old
+  `206F 0012` / `S+0x04` provenance is RETRACTED.
+
+### S6. `+0x147D4` remains an unresolved indirect-table hypothesis
+- **Claim:** the raw data word `+0x147D4=0x000098A2` has no identified
+  consumer in the extracted PROC1. The blob contains no PC-relative call to
+  `+0x98A2`, and no code reference to the `+0x147D0` data region was found.
+- **Status:** HYPOTHESIS only: table base, stride, indexed lookup, and its
+  relationship to the live wrapper remain unresolved.
+
+### P21. Captured `record+0x52` descriptor decodes as one zero-ProcInfo PPC record
+- **Claim:** the captured bytes at `01809F46` decode as a version-7,
+  non-dispatched, one-record Mixed Mode descriptor. The header is
+  `AAFE 0700 00000000 0000 0000`; the record is
+  `00000000 0001 0004 018E9B78 00000000 00000000`.
+- **Field decode:** `+0x00` `AAFE` = `_MixedModeMagic`; `+0x02` `07` =
+  `kRoutineDescriptorVersion`; `+0x03` `00` = no descriptor flags;
+  `+0x04..07` zero reserved; `+0x08` and `+0x09` zero reserved/selector
+  info; `+0x0A` `0000` = final-record index zero, hence one record;
+  record `+0x0C` procInfo `00000000`; `+0x10` reserved `00`; `+0x11`
+  ISA `01` = PowerPC; `+0x12` routineFlags `0004` = `kUseNativeISA`;
+  `+0x14` procDescriptor `018E9B78`; `+0x18` reserved zero; `+0x1C`
+  selector zero.
+- **Status:** PROVEN for the captured descriptor.
+
+### P22. OMS's static record lifecycle aliases CFM output; it does not build the descriptor
+- **Claim:** at `+0x0DBDC`, OMS calls `GetDiskFragment`; on success it
+  copies eight longwords from the result area into `record+0x66` at
+  `+0x0DBF0`–`+0x0DBF8`. It saves the old `record+0x52` value at `+0x7A`
+  and writes `record+0x52 = record+0x66` at `+0x0DC0A`–`+0x0DC16`.
+- **Claim:** the OMS PROC1 blob contains no `NewRoutineDescriptor` call and
+  no instruction that writes the copied RoutineRecord's `procInfo`.
+- **Status:** PROVEN statically that OMS is not the constructor or ProcInfo
+  writer. STRONG INFERENCE is that the copied bytes originate from the CFM
+  load result; the exact internal CFM constructor is outside the preserved
+  OMS/PEF artifacts. The public CFM contract does not specify the embedded
+  ProcInfo value, so “CFM normally returns procInfo=0” remains UNKNOWN.
+  `uppOMSDriverProcInfo=0x0FB0` is supplied separately at the A9E2
+  `CallUniversalProc` site and is not copied into this descriptor.
+
+### S9. Public CFM documentation does not settle mainAddr's embedded ProcInfo
+- **Proven from Apple material:** `GetDiskFragment` returns `mainAddr` as
+  the fragment's main entry point. Apple Mixed Mode material separately
+  describes a PPC procedure pointer as a transition vector and a UPP as a
+  RoutineDescriptor carrying calling metadata.
+- **Not specified:** the public `GetDiskFragment` contract does not say that
+  `mainAddr` is a CFM-created RoutineDescriptor, nor does it specify the
+  RoutineRecord `procInfo` value if one is present.
+- **Status:** UNKNOWN whether zero is the normal CFM-generated value; TM or
+  lower-level CFM evidence is required.
+
+### S7. Zero ProcInfo explains cleanup, not the exact PPC register tuple
+- **Strong inference:** invoking the captured descriptor through embedded
+  `procInfo=0` declares no stack parameters and no result, so it does not
+  consume or clean the wrapper's `FFFF,0,0` frame. This explains unchanged
+  A7 and the subsequent `RTS -> 00000000`.
+- **Unknown:** zero ProcInfo does not statically determine PPC r3/r4/r5.
+  The observed `00FF,<record>,1` tuple cannot be derived from the captured
+  descriptor or wrapper pushes and must not be treated as marshaled args.
+
+### S8. TM comparison is static at the PEF/loader level, not record memory
+- **Proven:** the checked-in TM fixture is a known-good PPCC 1 PEF with a
+  valid special-main entry/vector. The shared OMS loader path is the same
+  `GetDiskFragment` -> copy to `+0x66` -> alias `+0x52` sequence.
+- **Unknown:** the corpus contains no captured TM OMS record or CFM
+  descriptor, so TM's runtime `record+0x52` bytes and embedded ProcInfo
+  cannot be compared directly.
+- **Consequence:** no different OMS descriptor constructor is statically
+  established; the earliest proven USBMIDI9/TM difference is PEF/main-entry
+  metadata and/or later invocation selection, not ProcInfo construction.
 
 ## STRONG INFERENCE
 

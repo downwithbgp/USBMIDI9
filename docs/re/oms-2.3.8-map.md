@@ -125,11 +125,9 @@ The extension word is the unsigned bit pattern `0x0018`; as a signed
 `-0x0A`, `-0x0E`, then `-0x12` during `JSR`; the ordinary callee return
 restores A7 to `S-0x0E`. Therefore the effective address is mechanically
 `S-0x0E + (+0x0018) = S+0x0A`. `+98B4` loads the longword at exactly
-`S+0x0A`; it is not yet proven to be an object or named argument. The raw
-bytes prove the separate field displacement is `0x0052`, but do
-not prove that the value at `S+0x0A` is a first argument or that its object
-is the loader record. Those earlier identities are retracted pending a
-consumer/caller trace.
+`S+0x0A`; the latest `+0xDC46` return-PC mapping now proves that this value
+is the loader's driver record for the captured invocation. The raw bytes
+prove the separate field displacement is `0x0052`.
 
 The byte-level entry/constructed layout is:
 
@@ -171,11 +169,10 @@ Static descriptor-consumer check: PROC1 `+0x1EE0` compares the word at
 chooses among internal record tables at `object+0x18`, `object+0x20`, and
 `object+0x28`; records are traversed with `0x0E`-byte stride. This proves
 that this OMS code recognizes incoming RoutineDescriptors, but it does not
-prove that it created the live descriptor at `0x017D7A26`, nor that this
-record family is the object read at `+98B4`. A scan found no
-`NewRoutineDescriptor` call in OMS PROC1. Descriptor creator, the
-`S+0x0A` object identity, and the connection of that object to `+0x98A2`
-therefore remain unresolved.
+prove that it created the live descriptor at `0x017D7A26`. A scan found no
+`NewRoutineDescriptor` call in OMS PROC1. The later `+0xDC44` return-PC
+mapping now proves the loader's `S+0x0A` object identity and its connection
+to the live `+0x98A2` invocation.
 
 Additional callback-path finding: function `+0x94A2` writes
 `object+0x52` to `object+0x8A` at `+0x94D8`, then directly calls the
@@ -190,6 +187,207 @@ a word result. Its static callers are likewise not direct `BSR/JSR` edges
 in this extracted blob. This establishes a second consumer family, but
 does not connect either family to the orphan raw `+0x147D4` word or prove
 that either one selected the live `+0x98A2` entry.
+
+### Corrected static contract boundary
+
+The byte-proven selection performed by the wrapper is:
+
+```text
+entry SP = S
+selector  = word [S+0x08]                 ; compared with 0xFFFF
+source    = long [S+0x0A]                 ; +98B4: 0x18(A7)
+object    = source                         ; provisional name
+target    = long [object+0x52]             ; +98B8
+call      = JSR (target)                   ; +98BC
+```
+
+The stack evolution is:
+
+```text
++98AA SUBQ.W #4,A7        S      -> S-0x04
++98AC MOVE.W #$FFFF,-(A7)         -> S-0x06
++98B0 CLR.L -(A7)                 -> S-0x0A
++98B2 CLR.L -(A7)                 -> S-0x0E
++98B4 0x18(A7) = (S-0x0E)+0x18   = S+0x0A
++98BC JSR (A0)                  -> temporary S-0x12
+```
+
+If the target leaves the caller-built frame untouched, return A7 is
+`S-0x0E`; `+0x98BE` pops the `+98B2` zero and `RTS` consumes the `+98B0`
+zero. The latest G4 capture proves that immediate zero-RTS mechanism, but
+does not capture the current wrapper's source longword or target pointer.
+
+The raw `+0x147D4=0x000098A2` word is still only a HYPOTHESIS about a
+separate function table. No in-blob code reference establishes that table's
+base, stride, or consumer; it is not needed for the proven `+0xDC44` edge.
+For the captured invocation, the loader record and its `+0x52` field are
+now connected to `+0x98A2` by the live return PC and static call sequence.
+
+The wrapper's one word plus two longword pushes are consistent with a
+Pascal-style callback contract only as an ABI inference. The generic OMS
+driver-entry `CallUniversalProc(...,0x0FB0,...)` path is separate and does
+not identify this target. A zero-ProcInfo RoutineDescriptor would explain
+an unchanged frame, but descriptor identity must be proven for the current
+indirect call before treating it as the cause here.
+
+### Captured RoutineDescriptor: byte-level decode
+
+The earlier live dump at `record+0x66 = 0x01809F46` was:
+
+```text
+01809F46  AAFE 0700 0000 0000 0000 0000 0000 0000
+01809F56  0001 0004 018E 9B78 0000 0000 0000 0000
+```
+
+With the SDK's mac68k-packed layout:
+
+| offset | width | raw value | semantic field |
+|---:|---:|---|---|
+| 0x00 | UInt16 | `AAFE` | `_MixedModeMagic` / `goMixedModeTrap` |
+| 0x02 | SInt8 | `07` | `kRoutineDescriptorVersion` |
+| 0x03 | UInt8 | `00` | `routineDescriptorFlags = 0` |
+| 0x04 | UInt32 | `00000000` | `reserved1` |
+| 0x08 | UInt8 | `00` | `reserved2` |
+| 0x09 | UInt8 | `00` | `selectorInfo = 0` |
+| 0x0A | UInt16 | `0000` | final-record index 0; one record |
+| 0x0C | UInt32 | `00000000` | record `procInfo` |
+| 0x10 | SInt8 | `00` | record `reserved1` |
+| 0x11 | ISAType | `01` | `kPowerPCISA` |
+| 0x12 | UInt16 | `0004` | `kUseNativeISA` |
+| 0x14 | ProcPtr | `018E9B78` | PPC transition-vector address |
+| 0x18 | UInt32 | `00000000` | record `reserved2` |
+| 0x1C | UInt32 | `00000000` | record `selector` |
+
+The zero `routineCount` is the index of the final record in a zero-based
+array, not an empty-record count. See Apple's [RoutineDescriptor field
+definition](https://developer.apple.com/documentation/coreservices/routinedescriptor/1542425-routinecount).
+The `0x0004` routine flag is `kUseNativeISA`; the Mixed Mode reference
+defines that flag with the other routine flags ([reference PDF](https://vintageapple.org/inside_r/pdf/PPC_System_Software_1994.pdf)).
+
+### Descriptor lifecycle and causal boundary
+
+```text
+OMdi + PPCC resource selection
+        ↓
+GetDiskFragment (+0x0DBDC)
+        ├─ CFM result block copied to record+0x66 (+0x0DBF0..+0x0DBF8)
+        ├─ old record+0x52 preserved at record+0x7A (+0x0DC0A)
+        └─ record+0x52 overwritten with record+0x66 (+0x0DC10..+0x0DC16)
+        ↓
++98A2 reads source=[S+0x0A], target=[source+0x52], then JSR (target)
+```
+
+The PROC1 blob contains no `NewRoutineDescriptor` call and no instruction
+that writes the copied RoutineRecord's `procInfo`. Thus the captured
+descriptor is supplied by the CFM/GetDiskFragment path or lower-level CFM
+machinery, not synthesized by OMS and not populated from OMdi/PPCC bytes.
+The `0x0FB0` value exists at the separate A9E2 `CallUniversalProc` site;
+it is not copied into this descriptor.
+
+The wrapper's pushes independently describe one word and two longwords,
+with a four-byte reservation before them. That is consistent with a
+Pascal-style callback contract only as an ABI inference; it does not prove
+the descriptor ProcInfo. Under embedded `procInfo=0`, Mixed Mode declares no
+stack parameters/result, so it explains the unchanged wrapper frame and
+the zero RTS return. It does not statically explain PPC `00FF`, the record,
+and `1`; those values are UNKNOWN as marshaled arguments.
+
+### TM comparison boundary
+
+The checked-in TM artifact is a known-good PPCC 1 fixture with valid
+special-main metadata/vector. OMS's static loader writes `+0x52` and
+`+0x66` through the same code for every loaded PPC driver. The corpus has
+no TM runtime record or CFM descriptor, so it cannot prove TM's embedded
+ProcInfo or establish a different descriptor constructor. The first
+proven USBMIDI9/TM difference remains the driver's PEF/main-entry metadata
+and/or later path selection, not a different OMS ProcInfo write.
+
+### M4b. Proven loader caller for `+0x98A2`
+
+The latest live return address resolves the previously missing edge:
+
+```text
+PROC1 base       = 0x0185E1E0
+live +0x98A2     = 0x01867A82
+live +0x98BE     = 0x01867A9E
+wrapper return   = 0x0186BE26 = PROC1+0xDC46
+call instruction = PROC1+0xDC44 = JSR (A1)
+```
+
+Raw bytes and disassembly at `+0xDC30..+0xDC46`:
+
+```text
++0xDC30  42 A7             CLR.L  -(A7)
++0xDC32  2F 0A             MOVE.L A2,-(A7)
++0xDC34  3F 3C FF FF      MOVE.W #$FFFF,-(A7)
++0xDC38  2F 12             MOVE.L (A2),-(A7)
++0xDC3A  20 57             MOVEA.L (A7),A0
++0xDC3C  22 68 00 0C      MOVEA.L 0x000C(A0),A1
++0xDC40  22 69 00 0C      MOVEA.L 0x000C(A1),A1
++0xDC44  4E 91             JSR (A1)
++0xDC46  36 00             MOVE.W D0,D3
+```
+
+The dynamic frame proves that this indirect target was `+0x98A2` in the
+captured invocation. The last two pushes before the JSR become:
+
+```text
+[S+0x08] = FFFF       ; word pushed at +0xDC34
+[S+0x0A] = A2         ; record pointer pushed at +0xDC38
+```
+
+The earlier `CLR.L` becomes `[S+0x0E]`; `+0x98A2` does not use it before
+constructing its own callback frame. `A2=0x017BA020` in the live capture is
+therefore the source/driver record for this invocation. The value pushed at
+`+0xDC38` is `[A2]`, the first dispatch link, not the record pointer.
+
+This is a loader/materialization-time internal probe. It occurs after the
+PPC branch's `GetDiskFragment` result copy and `record+0x52 = record+0x66`
+alias at `+0xDC16`, then follows the nested `+0x0C` callback-table links
+from the record to `A1`. The `+0x147D4` data word is not required to explain
+this edge.
+
+The generic A9E2 driver dispatcher remains a different operation: it calls
+the driver's main UPP with external ProcInfo `0x0FB0`. The `+0xDC44`
+operation instead calls an OMS internal callback selected from the record's
+nested callback structure; that callback then reads the record's `+0x52`
+main descriptor. The exact semantic name of the two `+0x0C` links remains
+unresolved, but the call edge and argument construction are PROVEN.
+
+### Dispatch-object chain at `+0xDC3A..+0xDC44`
+
+The call is a two-level method lookup, not a direct reference to the raw
+`+0x147D4` data word:
+
+```text
+A2 = driver record
+O0 = [A2]
+A0 = O0
+A1 = [A0+0x0C]
+A1 = [A1+0x0C]
+JSR (A1)
+```
+
+Static writers include these families:
+
+```text
++0x3292..+0x32F2  A4-relative method object -> object+0x0C
++0xD584            resolved pointer A0 -> object+0x0C
+                   (pointer resolution uses +0xD2B0)
+```
+
+This proves that `+0x0C` is a method/object link. The static blob does not
+bind one writer to live record `0x017BA020`, however. The final method value
+`+0x98A2` is proven dynamically by the `+0xDC46` return address.
+
+```text
+record[0] is the first dispatch-object link PROVEN
+O0+0x0C is the first method-object link    PROVEN
+second +0x0C is the selected method pointer PROVEN
+selected method = +0x98A2                   PROVEN for captured run
+static table identity                       UNRESOLVED
+wrong adapter selected by metadata          UNKNOWN
+```
 
 ## M5. OMS Setup PPC driver-call sites (H)
 

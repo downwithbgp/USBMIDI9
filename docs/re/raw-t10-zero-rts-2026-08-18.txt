@@ -1,0 +1,36 @@
+Latest G4 dynamic capture — zero-ProcInfo return-stack failure
+
+PPC main final blr was reached normally.
+LR = FFCEC400.
+
+Single-step across the final blr returned through Mixed Mode and stopped at
+the 68K continuation immediately after the JSR (A0) in the +98A2-shaped
+wrapper:
+
+01867A9E  201F  MOVE.L (A7)+,D0
+
+Before executing 201F:
+
+A7 = 2DE935FE
+[A7+0] = 00000000
+[A7+4] = 00000000
+[A7+8] = FFFF017B
+
+Steps:
+
+01867A9E  MOVE.L (A7)+,D0
+01867AA0  MOVEQ #0,D0
+01867AA2  RTS
+
+Immediately before RTS:
+
+A7 = 2DE93602
+[A7] = 00000000
+
+One S on RTS produced:
+
+PC = 00000000
+
+Conclusion: the malformed post-callback stack and RTS -> 00000000 are
+PROVEN. FFFFFFF3 is downstream from execution at address zero and is not
+the primary transfer target.
