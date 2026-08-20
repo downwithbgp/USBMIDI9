@@ -171,6 +171,31 @@ setting not being applied to the generated PEF, or CodeWarrior resolving the
 setting to the existing `main` symbol. It is not evidence that a descriptor
 main is invalid. Do not package or run this artifact.
 
+## Packaged AFP artifact (2026-08-20)
+
+The later 10035-byte build was packaged by the existing resource project. The
+AFP-mounted AppleDouble resource fork was extracted and listed locally:
+
+```text
+resource fork: 10539 bytes
+OMdi 128  attrs=0x00 len=16
+SICN 128  attrs=0x00 len=64
+vers 1    attrs=0x00 len=42
+PPCC 1    attrs=0x00 len=10035
+```
+
+The extracted `PPCC 1` payload is byte-identical to the validated raw PEF:
+
+```text
+size   10035
+sha256 2ee694afdabc1c6882aa946a8059ea4cb8e2cf4e25bc6a4f8a263c06be3a2931
+```
+
+Therefore the subsequent Search run used the descriptor-main experiment.
+Because no pre-call breakpoint was armed, `User break at 2F6B2E96` does not
+identify whether the direct `+98A2` call survived and is not crash evidence
+for or against the descriptor hypothesis.
+
 ## Classification
 
 ```text
