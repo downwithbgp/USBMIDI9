@@ -14,6 +14,7 @@ how do we know it?"* — the operational G4 build/test checklist lives in
 | `evidence-ledger.md` | every important conclusion, classified PROVEN / STRONG INFERENCE / HYPOTHESIS / RETRACTED, with the supporting evidence |
 | `oms-2.3.8-map.md` | base-independent map of the OMS 2.3.8 library/Setup code: offsets, names, calling conventions, callers |
 | `mixed-mode.md` | RoutineDescriptor/UPP/CallUniversalProc mechanics + ProcInfo decodes |
+| `ppc-68k-reference.md` | PPC/68K registers, instructions, calling conventions, and Mixed Mode boundary |
 | `pef-cfm.md` | PEF v1 container format, Code Fragment Manager behavior, special main vs export |
 | `runtime-traces.md` | MacsBug/G4 experiment ledger (load-specific addresses only here) |
 | `false-leads.md` | retracted/invalid conclusions — so a future agent does not rediscover them |
