@@ -296,3 +296,64 @@ size = 489672884
 source = "Macintosh Garden 'emagic-logic-updates', emagic_MAC.zip"
 status = "known-good source"
 notes = "Logic updates collection (solodrivers.com mirror); lc_oms_driver.sit extracted from MAC/SIT/."
+
+# --- 2026-08-21 G4 StuffIt Expander extraction results (hash-only) ---
+# Returned via AFP from the G4 after unstuffing the method-15-locked
+# archives with classic StuffIt Expander (README-G4.txt workflow).
+# Analysis: docs/re/known-good-driver-search-2026-08-21.md section 11.
+
+[[artifact]]
+name = "g4_unitor_driver_ad"
+sha256 = "bdb48a3dc32a10385dfbb5fdb9722838bde7f5ec1512422099edfcd1b0a8420a"
+size = 36288
+source = "G4-OUTBOX/._Unitor Family OMS Driver (netatalk AppleDouble, ea=sys)"
+status = "known-good (G4 StuffIt Expander extraction of u8omsdrv.sit)"
+notes = "resource fork 36,206 B at AppleDouble offset 82 = exactly the SIT5 entry rlen. OMdi 128 = 0ffe0000000000008001000000000000 (id 0x0FFE, OMdi+6=0); OMdv 128 = 68K code, NO PPCC, NO PROC."
+
+[[artifact]]
+name = "g4_unitor_rsrc"
+sha256 = "e51c80f2ddd41a7cdb99301cad50105622836e3b8f89b975ae56880624bae758"
+size = 36206
+source = "extracted from g4_unitor_driver_ad"
+status = "known-good"
+notes = "Unitor8 OMS Driver: OMdv 128 (13556 B, 68K header 600e00004f4d6476 0080), OMdi 128, BNDL/FREF/SICN/ALRTx5/DITLx5/U8dr/cicnx4/icons/vers/DLOG/TMPL 'OMdi'/PICT. No PPCC."
+
+[[artifact]]
+name = "g4_lc_driver_ad"
+sha256 = "3f6e2a1cb86c5a85330ef28ac3f58f39cf827d980ea4ffe06281273a7eb297e4"
+size = 24066
+source = "G4-OUTBOX/lc_oms_driver Folder/._Logic Control OMS Driver (AppleDouble)"
+status = "known-good (G4 StuffIt Expander extraction of lc_oms_driver.sit)"
+notes = "resource fork 23,984 B = exactly the SIT5 entry rlen. OMdi 128 = 7f800000000000008001000000000000 (id 0x7F80, OMdi+6=0); OMdv 128 = 68K code, NO PPCC, NO PROC."
+
+[[artifact]]
+name = "g4_lc_rsrc"
+sha256 = "64d688e84e3b2633694f64f63dd025d5af0099173f867aee74833a11fa3b34a2"
+size = 23984
+source = "extracted from g4_lc_driver_ad"
+status = "known-good"
+notes = "Logic Control OMS Driver v1.0.1: OMdv 128 (15358 B, 68K header 600e00004f4d6476 0080), OMdi 128, BNDL/FREF/SICN/ALRT/DITLx2/emLC/cicn/icons/vers/DLOGx2/TMPL 'OMdi'/PICT. No PPCC."
+
+[[artifact]]
+name = "g4_lc_pdf"
+sha256 = "0f5c10f5f2dde391dd25f7bbebaa6c11e457c17476ddc4d48c66d04ca33ef5de"
+size = 365465
+source = "G4-OUTBOX/lc_oms_driver Folder/Logic Control OMS Driver.pdf"
+status = "known-good"
+notes = "Logic Control OMS Driver user manual, Nov 2002 (HUI + Mackie Control emulation)."
+
+[[artifact]]
+name = "g4_lc_changelog"
+sha256 = "2b25fbd21d83b384f160025b9e19f677ce917fd43f974078aa06077a0a29ab99"
+size = 337
+source = "G4-OUTBOX/lc_oms_driver Folder/Change History.txt"
+status = "known-good"
+notes = "LC driver v1.0.0 -> v1.0.1 (LED feedback, LCD clear, REC/RDY LED -> HUI emulation switch fixes)."
+
+[[artifact]]
+name = "g4_lc_changelog_ad"
+sha256 = "d1b834c81f3f8e51ee6b1ef1216149e80e0cdc18c7a98097045d4447d8fa7b4f"
+size = 464
+source = "G4-OUTBOX/lc_oms_driver Folder/._Change History.txt"
+status = "known-good"
+notes = "AppleDouble; resource fork 382 B = MPSR 1005 (sound resource)."

@@ -19,7 +19,7 @@ not decompressed by any open-source tool (see §7).
 | `OMdi 128` + `PPCC` driver exists in the accessible archives | **NOT FOUND** |
 | every authentic vendor OMS driver examined is 68K (`OMdi` + `OMdv` code resource) | **PROVEN** (19 drivers, §4) |
 | the OMS 2.3.8 loader's PPCC lookup (`Get1Resource('PPCC', OMdi+6)`) misses on every authentic driver because `OMdi+6 == 0` | **PROVEN** (§5) |
-| the Emagic Unitor-family driver (prime remaining PPCC candidate) is locked in SIT5 method-15 compression | **PROVEN** (format mismatch) |
+| the Emagic Unitor-family driver (last PPCC candidate) is 68K too | **PROVEN** (G4 StuffIt Expander extraction, 2026-08-21, §11) |
 | USBMIDI9 source change justified by a known-good artifact | **NO** — no artifact found; no change made |
 
 ## 2. Sources searched
@@ -32,7 +32,7 @@ not decompressed by any open-source tool (see §7).
 | Internet Archive: `unitor-family-driver-v3` | Unitor MIDI Driver dmg | OS X pkg (not OMS-era) |
 | Macintosh Garden `emagic-unitor8-midi-interface-software` | u8omsdrv.sit / u8install.sit / u8ctrl30.sit | driver = method-15 locked (§7) |
 | Macintosh Garden `midiman` (M-Audio drivers CD 07/2000, ISO) | omsdrv106/104/base, usbmac104, macms1, macms4v1 sea/hqx | 4 MidiSport OMS drivers extracted + verified, all 68K (§4) |
-| Macintosh Garden `emagic-logic-updates` (489 MB zip) | lc_oms_driver.sit (Logic Control OMS driver) | method-15 locked |
+| Macintosh Garden `emagic-logic-updates` (489 MB zip) | lc_oms_driver.sit (Logic Control OMS driver) | method-15 locked → G4 StuffIt Expander extraction → 68K (§11) |
 | Macintosh Garden OMS page (`open-music-system-238-oms`) | OMS_MIDI_Manager_Driver.sit + OMS 2.2/2.3.2/2.3.4-2.3.7 installers | not needed (same era) |
 | motu.com Wayback CDX (1996-2016) | MTP AV / OMS driver downloads | classic-era drivers not preserved |
 | emagic.de Wayback CDX (3000 captures) | Unitor/AMT driver downloads | downloads not preserved |
@@ -107,7 +107,9 @@ is `Get1Resource('PPCC', 0)` → NULL → the 68K OMdv path (via the generic
 exercises the private `+0xDC44 -> +0x98A2` native adapter.** USBMIDI9 is
 the first known `OMdi+PPCC` driver, and it is the first to hit that path
 — consistent with the zero-ProcInfo failure being a genuine, never-validated
-corner of OMS 2.3.8.
+corner of OMS 2.3.8. The G4 extraction of the last remaining candidates
+(Emagic Unitor Family + Logic Control, §11) confirms the same pattern:
+21/21 verified vendor drivers are 68K `OMdi+OMdv`.
 
 ## 6. Comparison with USBMIDI9
 
@@ -124,6 +126,8 @@ The OMdi fields themselves are not the missing contract: the authentic
 OMdi records deliberately point the code lookup at the 68K OMdv fallback.
 The missing artifact is a driver whose OMdi+6 selects a PPCC resource in a
 way that was proven to work — and none exists in the accessible corpus.
+(The Emagic Logic Control uses `0x7F80` — same `0x7Fxx` region as
+USBMIDI9's `0x7F10` — but with `OMdi+6 == 0` like everyone else.)
 
 ## 7. The SIT5 method-15 ("max") blocker
 
@@ -191,3 +195,69 @@ step.
 - `tools/re/smoke.sh` — new smoke tests for the three tools.
 - `docs/re/artifacts.toml` — new artifact hashes.
 - `docs/re/known-good-driver-search-2026-08-21.md` — this report.
+
+## 11. G4 StuffIt Expander extraction results (2026-08-21)
+
+The two method-15-locked archives were unstuffed on the G4 with the
+installed classic StuffIt Expander, per README-G4.txt, and the complete
+extracted files were copied back over AFP (netatalk `ea = sys`, AppleDouble
+representation). This closed the last open candidate family.
+
+### Returned artifacts (G4-OUTBOX) and hashes
+
+| artifact | SHA-256 | size | note |
+|---|---|---|---|
+| `Unitor Family OMS Driver` (data fork) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | 0 B | classic driver: everything in the resource fork |
+| `._Unitor Family OMS Driver` (AppleDouble) | `bdb48a3dc32a10385dfbb5fdb9722838bde7f5ec1512422099edfcd1b0a8420a` | 36,288 B | rsrc fork 36,206 B at offset 82 — exactly the SIT5 header `rlen=36206` |
+| `lc_oms_driver Folder/Logic Control OMS Driver` (data fork) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | 0 B | same |
+| `lc_oms_driver Folder/._Logic Control OMS Driver` | `3f6e2a1cb86c5a85330ef28ac3f58f39cf827d980ea4ffe06281273a7eb297e4` | 24,066 B | rsrc fork 23,984 B — exactly `rlen=23984` |
+| `lc_oms_driver Folder/Logic Control OMS Driver.pdf` | `0f5c10f5f2dde391dd25f7bbebaa6c11e457c17476ddc4d48c66d04ca33ef5de` | 365,465 B | user manual, Nov 2002, HUI/Mackie Control emulation |
+| `lc_oms_driver Folder/Change History.txt` | `2b25fbd21d83b384f160025b9e19f677ce917fd43f974078aa06077a0a29ab99` | 337 B | LC driver v1.0.1 |
+| `lc_oms_driver Folder/._Change History.txt` | `d1b834c81f3f8e51ee6b1ef1216149e80e0cdc18c7a98097045d4447d8fa7b4f` | 464 B | rsrc fork 382 B = `MPSR 1005` (sound) |
+
+The AppleDouble files are netatalk `ea = sys` style: 24-byte header, entries
+at 0x1A (id 9 = ProDOS info, id 2 = resource fork). Both resource forks
+parse as standard forks (dataOffset 0x100, dataLen/mapLen reconcile exactly
+with the fork length).
+
+### Resource inventories
+
+**Unitor Family OMS Driver** (19 types): `OMdv 128` (13,556 B, name
+"Unitor8 OMS Driver"), `OMdi 128`, `BNDL/FREF`, `SICN`, 5× `ALRT`, 5×
+`DITL`, `U8dr 0` ("Owner resource"), 4× `cicn`, `icl4/icl8/ICN#/ics#/ics4/
+ics8`, `vers 1`, `DLOG 128` ("Configure"), `TMPL 128` (name "OMdi"), `PICT`.
+**No `PPCC`, no `PROC`.**
+
+**Logic Control OMS Driver** (18 types): `OMdv 128` (15,358 B, name "Logic
+Control OMS Driver"), `OMdi 128`, `BNDL/FREF`, `SICN`, `ALRT 4444`,
+2× `DITL`, `emLC 0` ("Owner resource"), `cicn 500`, `icl4/icl8/ICN#/ics#/
+ics4/ics8`, `vers 1`, 2× `DLOG` ("Configure", "Add"), `TMPL 128` ("OMdi"),
+`PICT`. **No `PPCC`, no `PROC`.**
+
+### OMdi 128 decode (both drivers, field-by-field)
+
+| field | Unitor Family OMS Driver | Logic Control OMS Driver | USBMIDI9 |
+|---|---|---|---|
+| hex | `0f fe 00 00 00 00 00 00 80 01 00 00 00 00 00 00` | `7f 80 00 00 00 00 00 00 80 01 00 00 00 00 00 00` | `7f 10 00 00 00 00 00 01 00 01 00 00 00 00 00 00` |
+| id (+0) | `0x0FFE` (Emagic) | `0x7F80` (Emagic LC) | `0x7F10` |
+| xxisSmart (+2) | 0 | 0 | 0 |
+| hasMenuOrWindows (+4) | 0 | 0 | 0 |
+| **xxportNumM (+6) = PPCC id** | **0** | **0** | **1** |
+| xxportNumB (+8) | 0x8001 | 0x8001 | 0x0001 |
+| compat (+11) | 0 | 0 | 0 |
+
+### OMdv 128 (68K code header)
+
+Both: `60 0E 00 00 'OMdv' 00 80 00 00 00 00 00 00 41 FA FF EE ...`
+(`bra.s +0x0e` over the header; version `0x0080`; `lea -0x12(pc),a0` entry)
+— the identical 68K driver format as the MidiSport/Opcode drivers.
+
+### Conclusion
+
+With the Emagic family examined, **21/21 verified vendor OMS drivers are
+68K `OMdi`+`OMdv` with `OMdi+6 == 0`**. This is the strongest available
+evidence — not absolute proof, since a vendor driver with a working PPCC
+resource could still exist in archives that were never preserved — that
+shipping drivers avoided OMS's PPCC path entirely, and that OMS 2.3.8's
+`+0xDC44 -> +0x98A2` native adapter was never exercised by a shipped
+driver. USBMIDI9 remains the only known `OMdi+PPCC` driver.
