@@ -196,14 +196,61 @@ Because no pre-call breakpoint was armed, `User break at 2F6B2E96` does not
 identify whether the direct `+98A2` call survived and is not crash evidence
 for or against the descriptor hypothesis.
 
+## Runtime result: CFM wraps the static descriptor (2026-08-20)
+
+At the USBMIDI9 record's direct `+98BC JSR (A0)` stop:
+
+```text
+A2 = 01845150                 USBMIDI9 record
+A0 = 018451B6                 record+0x66 / record+0x52 result
+
+018451B6  AAFE 0700 0000 0000 0000 0000 0000 0000
+018451C6  0001 0004 01B5 ADDC 0000 0000 0000 0000
+```
+
+The outer descriptor has `ProcInfo=0` and `procDescriptor=01B5ADDC`.
+That address contains a second descriptor:
+
+```text
+01B5ADDC  AAFE 0700 0000 0000 0000 0000 0000 0FB0
+01B5ADEC  0001 0004 01B5 AC88 0000 0000 0000 0000
+```
+
+Thus the exact runtime topology is:
+
+```text
+record+0x52 -> outer CFM descriptor (ProcInfo 0)
+                 -> procDescriptor = static inner RoutineDescriptor
+                    inner ProcInfo = 0x0FB0
+                    inner procDescriptor = 01B5AC88
+```
+
+The raw PEF was therefore packaged and loaded correctly, but CFM did not
+return the static descriptor address directly. It materialized an outer
+zero-ProcInfo descriptor for the fragment main symbol. A direct JSR through
+`record+0x52` still consults the outer zero ProcInfo, so the descriptor-main
+experiment cannot repair the direct-JSR adapter contract by itself.
+
+This runtime result disproves the narrower causal fix:
+
+```text
+static RD main -> CFM returns that same RD -> direct JSR uses 0x0FB0
+```
+
+The first two edges are now known to be false at runtime. The generic
+`CallUniversalProc` path can still supply external `0x0FB0`; the direct path
+needs the OMS-side pointer/adapter contract corrected separately.
+
 ## Classification
 
 ```text
 Static RoutineDescriptor construction is SDK-supported       PROVEN
 PEF Main can identify a data address                         PROVEN
 CFM infers 0x0FB0 from a function main                       DISPROVEN
-CodeWarrior accepts this data symbol as Main                 FAILED in first build
-RD pointer resolves to handler TVector                        TO VERIFY
+CodeWarrior accepts this data symbol as Main                 PROVEN
+CFM returns that same RD unchanged                            DISPROVEN
+CFM wraps static RD in outer ProcInfo-0 RD                    PROVEN
+RD pointer resolves to handler TVector                        PROVEN for inner RD layout
 Current direct path uses embedded ProcInfo=0                  PROVEN
-Changing Main to a static 0x0FB0 RD fixes the crash             HYPOTHESIS
+Changing Main to a static 0x0FB0 RD fixes the crash             DISPROVEN
 ```
