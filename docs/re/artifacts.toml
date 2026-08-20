@@ -202,3 +202,97 @@ source = "G4-built USBMIDI9_OMS_TRACE_SEARCH low-level-trap PEF (trace prefix fi
 resource = "PPCC 1"
 status = "known-good (Gate A PASS; G4 runtime run completed 2026-08-18)"
 notes = "pefcheck --trapcheck --expect=15 PASS: exactly 15 x 7F 80 00 08, all tw 0x1c,r0,r0, all 15 tags identified. The preserved production-save copy is byte-identical to the historical trace-build hash. G4 run (runtime-traces T7): E0 stop PPCC+0x190C, one G, then 68K Address Error PC=FFFFFFF3 fetching FFFFFFF1/FFFFFFF3; no further checkpoint. Proves FFFFFFF3 reproducible without DebugStr/Mixed-Mode trace call. Full table + lookup in docs/g4-trap-one-pass.md."
+
+# --- 2026-08-21 known-good-driver search (hash-only; NOT committed) ---
+# All files below are proprietary vendor binaries, kept OUT of the repo.
+# The BinHex/SIT5 extraction chain is documented in
+# docs/re/known-good-driver-search-2026-08-21.md; the tools are
+# tools/re/{binhex_decode.py,sit5.py,omdi_scan.py}.
+
+[[artifact]]
+name = "midiman_omsdrv106_hqx"
+sha256 = "de8d5d52976437fedc9df1e9381bfed1137974a5b2e350091c827dfa8db83895"
+size = 139630
+source = "M-Audio 'MIDIMAN Drivers PC' CD 07/2000 WEBPAGE/Media/omsdrv106.hqx (Internet Archive item 'midiman', garden mirror)"
+status = "known-good source (driver decompressed and CRC-verified)"
+notes = "hqx -> 'MIDISport OMS Driver106.sea' -> SIT5 -> 'MIDISport OMS Driver106' OMdv/MMan, rsrc fork 9138 B, IBM CRC16 0x6e1c matches SIT5 entry rcrc. Driver = 68K OMdi+OMdv, NO PPCC."
+
+[[artifact]]
+name = "midiman_omsdr104_hqx"
+sha256 = "6bfa7f0b0054b3596b79584781d1800400f2f45db9e80f2ce24b2689ae838a8b"
+size = 139155
+source = "same CD, omsdr104.hqx"
+status = "known-good source"
+notes = "MIDISport OMS Driver104 rsrc 8654 B, CRC 0xaddf, 68K OMdi+OMdv."
+
+[[artifact]]
+name = "midiman_omsdr_hqx"
+sha256 = "f6ab1ed465e1ba25c6903b41c882ce61cc56efb9f374c2343158b11718890242"
+size = 138937
+source = "same CD, omsdr.hqx"
+status = "known-good source"
+notes = "MIDISport OMS Driver (base) rsrc 7402 B, CRC 0xd60c, 68K OMdi+OMdv."
+
+[[artifact]]
+name = "midiman_usbmac104_hqx"
+sha256 = "49736787a245f5230f484556707c3826a759aa4520ff27643eef10513f05982b"
+size = 179484
+source = "same CD, usbmac104.hqx"
+status = "known-good source"
+notes = "'MIDISPORT 2x2.sea' -> OMS Driver1.04 (68K, CRC 0x7a38) + ndrv USB drivers (MIDISportDriver/Loader/Shim v1.0.0, not OMS)."
+
+[[artifact]]
+name = "midiman_macms1_hqx"
+sha256 = "508da2b00a7353525ba5f65ccfae7a8c346462ccc43c235779e7b113703661c3"
+size = 387477
+source = "same CD, macms1.hqx"
+status = "known-good source"
+notes = "1x1 sea: install script + readme + 'MIDISport1x1 v1.0 Installer' (VISE; installer rsrc method 15 locked)."
+
+[[artifact]]
+name = "midiman_macms4v1_sea_hqx"
+sha256 = "9b22097c9a219e3852d158e894f158752bad3f44bf9989ec70904f1a722d1738"
+size = 391668
+source = "same CD, macms4v1.sea.hqx"
+status = "known-good source"
+notes = "4x4 Installer (VISE 'ST60' container); its rsrc fork is method 15 locked."
+
+[[artifact]]
+name = "midiman_cd_iso_zip"
+sha256 = "7b509d252816113dc2fb2646b90767ea5a05ab352f7ae474416c04507b468e5d"
+size = 411256687
+source = "Internet Archive item 'midiman' (M-Audio/Midiman drivers CD 07/2000), file MIDIMAN_07_2000.iso_.zip"
+status = "known-good source"
+notes = "contains WEBPAGE/Media with the Mac driver downloads (omsdrv*.hqx etc.) + Windows drivers + OMS 2.3.7."
+
+[[artifact]]
+name = "tucows_opcode_oms_hqx"
+sha256 = "47ee41be29597dad1e6c251fc7aa8ca130378fd9be344de8a236d3d44510b398"
+size = 3601813
+source = "Internet Archive item tucows_206415, opcodeopenmusic.hqx"
+status = "known-good source"
+notes = "'Install OMS 2.3.8  .sit' (2,623,036 B) = the same OMS 2.3.8 media already in ~/research/oms/oms238c."
+
+[[artifact]]
+name = "emagic_u8omsdrv_sit"
+sha256 = "5f167fdef6cebfaa1ba1f09b17ae36463c02bc560dd10621ed3cd9c233886447"
+size = 14880
+source = "Macintosh Garden 'eMagic Unitor8 Midi Interface' app page, u8omsdrv.sit"
+status = "method-15 locked; G4 StuffIt Expander extraction required"
+notes = "contains 'Unitor Family OMS Driver' (OMdv/U8dr, rsrc 36,206 B, method 15 'max'). PRIME remaining PPCC candidate."
+
+[[artifact]]
+name = "emagic_lc_oms_driver_sit"
+sha256 = "38733d3d6c53dea8cf9098c405091aabd2ead76177e7cd22bb5e089fe78f2fb8"
+size = 157038
+source = "Macintosh Garden 'emagic-logic-updates' -> emagic_MAC.zip -> MAC/SIT/lc_oms_driver.sit"
+status = "method-15 locked; G4 StuffIt Expander extraction required"
+notes = "'Logic Control OMS Driver' (rsrc 23,984 B, method 15) + PDF + Change History, all method 15."
+
+[[artifact]]
+name = "emagic_logic_updates_zip"
+sha256 = "2df7e464cc0a2daabee31e0d3750b29f72179b404cc3885b929f1a3dc75955a6"
+size = 489672884
+source = "Macintosh Garden 'emagic-logic-updates', emagic_MAC.zip"
+status = "known-good source"
+notes = "Logic updates collection (solodrivers.com mirror); lc_oms_driver.sit extracted from MAC/SIT/."

@@ -25,6 +25,10 @@ Run the smoke tests: `make check-re-tools` (or `tools/re/smoke.sh`).
 | `bdiff.py` | byte-diff two binaries, differing runs | `bdiff.py FILE_A FILE_B` |
 | `oms_errors.py` | extract OMS error constants from SDK OMS.h | `oms_errors.py OMS_H [SPEC_TXT]` |
 | `ghidra/ApplyLabels.java` | reapply `docs/re/ghidra-functions.csv` labels on a fresh Ghidra import | Ghidra script (headless or GUI) |
+| `binhex_decode.py` | BinHex 4.0 / HQX decoder (validated on 7 real vendor hqx; RLE count includes the byte before 0x90) | `binhex_decode.py FILE.hqx OUTPREFIX` |
+| `sit5.py` | StuffIt 5 parser + method-13 (fastest) LZH decompressor (validated by IBM CRC16 on 7 real forks); method 15 NOT supported (see known-good-driver-search-2026-08-21.md §7) | `sit5.py LIST ARCHIVE`, `sit5.py EXTRACT ARCHIVE DIR`, `sit5.py DECOMPRESS 13 IN OUTLEN OUT` |
+| `omdi_scan.py` | scan resource forks for OMdi/PPCC/OMdv/PROC; hex-decode OMdi payloads and classify code resources | `omdi_scan.py FILE_or_DIR...` |
+| `make_classic_fixtures.py` | regenerate the synthetic hqx/sit5/omdi smoke fixtures (no proprietary bytes) | `make_classic_fixtures.py` |
 
 ## Conventions
 

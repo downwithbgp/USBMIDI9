@@ -115,6 +115,32 @@ PYEOF
 )
 echo "$OUT" | grep -q "manifest ok" && ok "artifacts.toml" || bad "artifacts.toml: $OUT"
 
+
+say "== binhex_decode.py (synthetic hqx: decode + CRCs + name) =="
+OUT=$(python3 binhex_decode.py $FIX/hqx_smoke.hqx /tmp/hqx_smoke.out)
+echo "$OUT" | grep -q "name='binhex smoke'" && echo "$OUT" | grep -q "data=109" && ok "binhex_decode" || bad "binhex_decode: $OUT"
+
+say "== sit5.py (synthetic SIT5: LIST the method-0 entry) =="
+OUT=$(python3 sit5.py LIST $FIX/sit5_smoke.sit)
+echo "$OUT" | grep -q "OMS Driver Smoke" && echo "$OUT" | grep -q "meth=0" && ok "sit5 LIST" || bad "sit5 LIST: $OUT"
+
+say "== sit5.py DECOMPRESS (synthetic method-13 blob, self-generated encoder) =="
+OUT=$(python3 sit5.py DECOMPRESS 13 $FIX/lzh13_smoke.bin 18 /tmp/lzh13_smoke.out)
+if echo "$OUT" | grep -q "decoded 18 bytes" && cmp -s /tmp/lzh13_smoke.out $FIX/lzh13_smoke.plain; then
+    ok "sit5 DECOMPRESS round trip"
+else
+    bad "sit5 DECOMPRESS round trip: $OUT"
+fi
+
+say "== sit5.py DECOMPRESS guard (method 15 not implemented) =="
+OUT=$(python3 sit5.py DECOMPRESS 15 $FIX/sit5_smoke.sit 1 /tmp/x.out 2>&1)
+echo "$OUT" | grep -q "only method 13 implemented" && ok "sit5 DECOMPRESS guard" || bad "sit5 DECOMPRESS guard: $OUT"
+
+say "== omdi_scan.py (synthetic OMdi+OMdv fork) =="
+OUT=$(python3 omdi_scan.py $FIX/omdi_smoke.rsrc)
+echo "$OUT" | grep -q "OMdi 128 len=16 hex=20220000000000000001000000000000" && \
+echo "$OUT" | grep -q "68K code resource" && ok "omdi_scan" || bad "omdi_scan: $OUT"
+
 if [ "$FAIL" -eq 0 ]; then
     say "check-re-tools: ALL PASS"
     exit 0
