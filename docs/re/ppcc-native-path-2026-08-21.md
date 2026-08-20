@@ -4,6 +4,29 @@ This note narrows the investigation to the native PPCC path. The fresh
 USBMIDI0 transcript is only a control: its ordinary OMdv target cleans the
 Pascal frame correctly.
 
+## ABI correction / local control (2026-08-20)
+
+The local SDK and PEF controls now establish the public PPCC main ABI as:
+
+```c
+OMSCALLBACK(long) main(short msg, long par1, long par2);
+```
+
+`OMSDrvUPPs.h` supplies `uppOMSDriverProcInfo = 0x0FB0` for the generic
+`CallUniversalProc` path. The USBMIDI9 production PEF's special main points
+to a pre-relocation `[code,TOC]` transition vector whose code target begins
+with a normal PPC `mflr` prologue and copies `r3/r4/r5`; the authentic TM PPCC
+fixture's main does the same. This rules out a no-argument bootstrap as the
+general PPCC main ABI.
+
+`OMSGluePPC.lib` is documented and string-inspected as CodeWarrior PPC OMS
+client glue. Its available evidence does not define a special PPCC driver
+main or an exported descriptor. The complete private contract between the
+loader's `+0xDC44 -> +0x98A2` adapter and a successful installable `OMdi+PPCC`
+driver remains unresolved because no such known-good driver file is present
+in the local corpus. The full boundary classification and a mechanical PEF
+diagnostic are in `ppcc-abi-diagnostic-2026-08-20.md`.
+
 ## Captured USBMIDI9 descriptor
 
 The first native capture stopped immediately before `PROC1+0x98BC JSR (A0)`:

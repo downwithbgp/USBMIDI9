@@ -17,6 +17,7 @@ how do we know it?"* — the operational G4 build/test checklist lives in
 | `ppc-68k-reference.md` | PPC/68K registers, instructions, calling conventions, and Mixed Mode boundary |
 | `pef-cfm.md` | PEF v1 container format, Code Fragment Manager behavior, special main vs export |
 | `runtime-traces.md` | MacsBug/G4 experiment ledger (load-specific addresses only here) |
+| `ppcc-abi-diagnostic-2026-08-20.md` | PPCC main ABI report, PEF controls, and private-loader boundary classification |
 | `false-leads.md` | retracted/invalid conclusions — so a future agent does not rediscover them |
 | `artifacts.toml` | machine-readable artifact manifest (hash + provenance; proprietary binaries hash-only) |
 | `ghidra-functions.csv` | offset → function-name export (the durable Ghidra knowledge) |

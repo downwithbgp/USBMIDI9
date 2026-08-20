@@ -197,8 +197,8 @@ notes = "MISSING from the repo; the E0 msg=00FF stop (runtime-traces T3) is sess
 name = "trace_build_4407a20e"
 sha256 = "4407a20eb774eec78ee2b5dc0802361d82b254b63a05ee924e49808b375e265e"
 size = 10018
-path = "USBMIDI9/USBMIDI9_OMS"   # live G4 build output on the AFP share (untracked)
+path = "USBMIDI9/USBMIDI9_OMS.production-save"   # preserved byte-for-byte control copy
 source = "G4-built USBMIDI9_OMS_TRACE_SEARCH low-level-trap PEF (trace prefix file USBMIDI9_OMS_trace_prefix.h, PPC Linker Main=main)"
 resource = "PPCC 1"
 status = "known-good (Gate A PASS; G4 runtime run completed 2026-08-18)"
-notes = "pefcheck --trapcheck --expect=15 PASS: exactly 15 x 7F 80 00 08, all tw 0x1c,r0,r0, all 15 tags identified. G4 run (runtime-traces T7): E0 stop PPCC+0x190C, one G, then 68K Address Error PC=FFFFFFF3 fetching FFFFFFF1/FFFFFFF3; no further checkpoint. Proves FFFFFFF3 reproducible without DebugStr/Mixed-Mode trace call. Full table + lookup in docs/g4-trap-one-pass.md."
+notes = "pefcheck --trapcheck --expect=15 PASS: exactly 15 x 7F 80 00 08, all tw 0x1c,r0,r0, all 15 tags identified. The preserved production-save copy is byte-identical to the historical trace-build hash. G4 run (runtime-traces T7): E0 stop PPCC+0x190C, one G, then 68K Address Error PC=FFFFFFF3 fetching FFFFFFF1/FFFFFFF3; no further checkpoint. Proves FFFFFFF3 reproducible without DebugStr/Mixed-Mode trace call. Full table + lookup in docs/g4-trap-one-pass.md."

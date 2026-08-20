@@ -80,6 +80,29 @@ This establishes the contract for the generic OMS driver-entry path only;
 it does not establish that the unrelated live descriptor at `0x017D7A26`
 should contain `0x0FB0`.
 
+## MM3a. PPCC main versus private native adapter
+
+The strongest local PPCC controls show that the fragment's main procedure is
+the OMS driver procedure itself, not a no-argument bootstrap. The USBMIDI9
+production vector targets a PPC `mflr` prologue that copies the three incoming
+values, and the authentic TM PPCC main executes `extsh. r5,r3`, uses `r4`, and
+returns a scalar in `r3`.
+
+Keep this public/generic ABI separate from the private OMS loader path:
+
+```text
+generic driver dispatch:  CallUniversalProc(mainAddr, 0x0FB0, msg, par1, par2)
+native loader adapter:    +DC44 -> +98A2 -> JSR(record+0x52)
+```
+
+The second path directly enters the callable object selected in the OMS
+record. If that object is an AAFE descriptor, its embedded ProcInfo governs
+the direct 68K call. The local evidence proves that the captured object has
+ProcInfo zero and that the wrapper frame is left in place; it does not yet
+prove which adapter/record shape a successful installable native PPCC driver
+uses. `OMSGluePPC.lib` supplies client glue and does not settle that private
+loader contract.
+
 ## MM4. The add1device callback UPP — uppOMSDvrAdd1DevProc1Info = 0x2F0 (PROVEN)
 
 `CallOMSDvrAdd1DevProc1(userRoutine, device, devSize)` uses:

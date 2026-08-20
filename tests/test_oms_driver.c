@@ -454,6 +454,15 @@ typedef char usb_notif_reserved1_is_array_guard[
         __typeof__(&((struct USBDeviceNotificationParameterBlock *)0)->reserved1),
         UInt8 (*)[1]) ? 1 : -1];
 
+/* The PPCC fragment's main is the OMS driver procedure itself.  This guard
+ * keeps the source-level diagnostic honest: it must remain exactly the
+ * SDK's three-argument Pascal-shaped entry (the host headers model the
+ * parameter/return types; the real CodeWarrior build supplies `pascal`).
+ * A no-argument bootstrap or a descriptor object cannot satisfy this type. */
+typedef char oms_ppcc_main_signature_guard[
+    __builtin_types_compatible_p(
+        __typeof__(&oms_driver_main), OMSDriverProc) ? 1 : -1];
+
 /* Install the fake environment with `n` interfaces and a driver present. */
 static void mock_setup(unsigned n)
 {

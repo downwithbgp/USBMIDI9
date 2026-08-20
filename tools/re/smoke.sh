@@ -50,6 +50,15 @@ say "== pef_analyze.py (production: 3 libs, 13 imports, USBManagerLib) =="
 OUT=$(python3 pef_analyze.py $PEF/production_usbmidi9.pef)
 echo "$OUT" | grep -q "USBManagerLib" && echo "$OUT" | grep -q "CallUniversalProc" && echo "$OUT" | grep -q "main" && ok "pef_analyze" || bad "pef_analyze: $OUT"
 
+say "== ppcc_abi_report.py (function-main/vector versus TM and RD2) =="
+OUT=$(python3 ppcc_abi_report.py ../../USBMIDI9/USBMIDI9_OMS.production-save \
+    --control $PEF/tm_ppcc1.pef --rejected ../../USBMIDI9/USBMIDI9_OMS_RD2)
+echo "$OUT" | grep -q "OMS ProcInfo: 0x00000fb0" && \
+echo "$OUT" | grep -q "main-representation=transition-vector" && \
+echo "$OUT" | grep -q "rejected-experiment.*" && \
+echo "$OUT" | grep -q "descriptor-main-status=REJECTED" && \
+echo "$OUT" | grep -q "DIAGNOSTIC: PASS" && ok "ppcc ABI report" || bad "ppcc ABI report: $OUT"
+
 say "== rsrc_list.py (synthetic resource fork: TEST 128) =="
 OUT=$(python3 rsrc_list.py $FIX/rsrcfork.bin)
 echo "$OUT" | grep -q "TEST 128" && ok "rsrc_list" || bad "rsrc_list: $OUT"

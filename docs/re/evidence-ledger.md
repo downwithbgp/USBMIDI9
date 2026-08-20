@@ -124,15 +124,19 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
   g4-handoff.md gate order); the E-series manual patching approach closed
   (docs/oms-ppcc-entry-crash.md §H).
 
-### P11. The OMS PPCC driver convention requires the main symbol to be a plain PPC code address (callable as a UPP)
-- **Claim:** the authentic TM PPCC stub's mainAddr is plain CodeWarrior
-  PPC machine code (`mflr r0` prologue), NOT a transition vector in the
-  export sense; a transition vector delivered via valid loader-info
-  special-main fields is ALSO callable (E2a vector worked far enough to
-  change the failure; TM works). The convention: mainAddr must be a
-  callable Mixed Mode UPP target.
-- **Evidence:** docs/oms-ppcc-entry-crash.md §B (TM `.main` → code offset
-  0x16c = `mflr r0`), §G.5 (TM vs E2a same call mechanism).
+### P11. The PPCC special main is a transition vector to a plain PPC function
+- **Claim:** the authentic TM PPCC special main resolves to a CodeWarrior
+  PPC function whose entry bytes begin with `mflr r0`; the PEF/CFM object
+  delivered through valid loader-info special-main fields is the normal
+  `[code,TOC]` transition vector, not an AAFE descriptor. The USBMIDI9
+  production PEF has the same vector-to-function representation.
+- **Evidence:** docs/oms-ppcc-entry-crash.md §B and §G.5 (TM and E2a vector
+  call paths), `pefcheck` relocation output for `tm_ppcc1.pef`, and the
+  production vector report in `docs/re/ppcc-abi-diagnostic-2026-08-20.md`.
+- **Correction:** “plain PPC code address” describes the vector's code
+  target, not the raw special-main object. The private OMS-record outer
+  descriptor and the PEF special-main transition vector are separate
+  representations.
 
 ### P12. The primary bad transfer is OMS 68K `RTS -> 00000000`; FFFFFFF3 is secondary
 - **Claim:** the PPC entry and Mixed Mode return are not the direct fault:
@@ -424,6 +428,85 @@ RETRACTED. See `false-leads.md` for the one-line retraction list and
 - **Consequence:** no different OMS descriptor constructor is statically
   established; the earliest proven USBMIDI9/TM difference is PEF/main-entry
   metadata and/or later invocation selection, not ProcInfo construction.
+
+### P26. PPCC `main` is a three-argument OMS driver procedure, not a no-argument bootstrap
+- **Claim:** the intended public PPCC entry shape is
+  `OMSCALLBACK(long) main(short msg, long par1, long par2)`, with the
+  generic Mixed Mode ProcInfo `uppOMSDriverProcInfo = 0x0FB0`.
+- **Evidence:** the authentic SDK `OMSDriver.h` declaration and
+  `OMSDrvUPPs.h` `NewOMSDriverProc`/`CallOMSDriverProc` macros; the
+  independent `tools/re/procinfo_check.c` decode; the USBMIDI9 production
+  PPC entry prologue at code-section +`0x1650`, which copies incoming `r3`,
+  `r4`, and `r5`; and the authentic TM PPCC main at code-section +`0x16C`,
+  which executes `extsh. r5,r3`, uses `r4`, and returns through a normal PPC
+  function epilogue.
+- **Consequence:** a no-argument PPCC bootstrap that returns or installs the
+  OMS driver UPP is not supported by the strongest local evidence. TM's
+  separate fragment-init routine and its unrelated packed-data AAFE object
+  must not be confused with its special main.
+
+### P27. `OMSGluePPC.lib` does not establish a special PPCC-main bootstrap
+- **Claim:** the available `OMSGluePPC.lib` is client/API glue, not evidence
+  of a hidden no-argument driver-main convention.
+- **Evidence:** SDK `README.OMSGlue` identifies it as the CodeWarrior PPC
+  full OMS glue library; `OMSGlueProcs.h` and the OMS Programming Interface
+  specify client calls such as `LinkToOMSGlue` and `OMSGetCallAddress`.
+  The 58508-byte `MWOBPPC ` library (SHA-256
+  `694615e235604fd75cd4e9b3bf8c658f4f3d5d1e5002dc7bfc94083d31e37afa`)
+  contains strings for Mixed Mode and client glue, including
+  `CallUniversalProc` and `GetBootstrapProc`, but no `main`,
+  `OMSDriverProc`, or `uppOMSDriverProcInfo` symbol/string. Host `nm` and
+  `objdump` do not decode its proprietary MWOBPPC object format, so no
+  stronger implementation claim is made.
+- **Status:** PROVEN as a negative search/result boundary; the exact private
+  implementation of `GetBootstrapProc` remains UNKNOWN.
+
+### P28. The zero-ProcInfo direct call has a distinct, statically known post-return path
+- **Claim:** after the loader's `+0xDC44 JSR (A1)` eventually reaches the
+  `+0x98A2` wrapper, the wrapper's direct `JSR (A0)` returns to `+0x98BE`,
+  not directly to the loader's `+0xDC46` status block. `+0x98BE` pops the
+  reserved result slot, `+0x98C0` clears D0, and `+0x98C2 RTS` consumes the
+  next longword as the wrapper return PC. With embedded ProcInfo zero, the
+  wrapper frame is not consumed and the next longword is zero. If the
+  callback conforms, the wrapper returns normally and `+0xDC46` copies D0
+  to D3, tests it, removes the outer 14-byte frame, and stores the status
+  byte at record `+0x56` on success.
+- **Evidence:** raw PROC1 bytes at `+0x98A2..+0x98C2` and `+0xDC30..+0xDC70`,
+  plus RD1/RD2 live stack captures. The generic `_CallUniversalProc` site at
+  `+0x10C86` is separate and supplies `0x0FB0` externally.
+- **Consequence:** the returned zero is a status result in the generic path;
+  it is not converted into a pointer, ProcInfo, or adapter object by the
+  proven post-call code.
+
+### P29. The ABI diagnostic is a mechanical function-main/vector check
+- **Claim:** `tools/re/ppcc_abi_report.py` accepts the preserved production
+  PEF only when its special main is a valid pre-relocation `[code,TOC]`
+  vector whose target begins with a PPC `mflr` prologue; it classifies the
+  RD2 AAFE special-main artifact as rejected and reports the authentic TM
+  vector control.
+- **Evidence:** production PEF SHA-256
+  `4407a20eb774eec78ee2b5dc0802361d82b254b63a05ee924e49808b375e265e`,
+  TM fixture SHA-256 `4a0978fe6ee557a31a75fa46c5941d0a249433c93f745efc022eef3635c5a295`,
+  RD2 SHA-256 `2ee694afdabc1c6882aa946a8059ea4cb8e2cf4e25bc6a4f8a263c06be3a2931`,
+  and `pefcheck` relocation output. The source test additionally requires
+  `&oms_driver_main` to have the SDK `OMSDriverProc` type.
+- **Consequence:** this diagnostic preserves the ordinary production
+  function-main representation and does not propose another descriptor-main
+  packaging variant.
+
+### P30. The unresolved boundary is the private native adapter, not the public main ABI
+- **Claim:** the local evidence establishes the public/generic PPCC main ABI
+  but does not establish how a successful installable `OMdi+PPCC` driver is
+  made safe for OMS's private `+0xDC44 -> +0x98A2` path.
+- **Evidence:** all local installable OMS driver resources found in the
+  2.3.8 media contain `OMdi+OMdv`; the PPCC-bearing resources are OMS Time
+  Manager, OMS Name Manager, and Open Music System components without an
+  `OMdi` driver record. The archived Roland SC-8850 PPC PEF is a USB class
+  fragment paired with an ordinary `OMdi+OMdv` driver, not an `OMdi+PPCC`
+  control. No complete native control driver is present in the corpus.
+- **Status:** UNKNOWN whether the missing native control uses a companion
+  68K adapter, a different dispatch object, or another loader artifact. No
+  behavioral source fix is justified until that contract is identified.
 
 ## STRONG INFERENCE
 
