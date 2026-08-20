@@ -129,13 +129,55 @@ by the captured return-PC topology. The observed PPC tuple
 `00FF,<record>,1` remains unmarshaled/residual state unless a trace proves a
 preceding generic invocation.
 
+## First G4 build result (2026-08-20)
+
+The existing PEF target was changed to `Main=USBMIDI9OMSMainRD` and rebuilt.
+The output was snapshotted before further builds:
+
+```text
+USBMIDI9/USBMIDI9_OMS_RD
+size   10018
+sha256 db706a708d3450289b93b7e923f276606a536d6dd596c7df092a55c3264e763e
+```
+
+The production control was located at
+`USBMIDI9/USBMIDI9_OMS.production-save`:
+
+```text
+size   10018
+sha256 4407a20eb774eec78ee2b5dc0802361d82b254b63a05ee924e49808b375e265e
+```
+
+`cmp` found only the PEF timestamp bytes at offsets `0x11..0x13` changed.
+The candidate loader still reports `mainSection=1, mainOffset=0x88`, and its
+special-main bytes are exactly the old transition vector:
+
+```text
+00 00 16 50 00 00 80 00
+```
+
+The descriptor gate therefore failed before any packaging or runtime test:
+
+```text
+GATE: FAIL
+- magic AAFE: got 0000
+- ProcInfo 0x0FB0: got 00008000
+- procDescriptor is not an in-section data offset
+```
+
+This build did not establish `USBMIDI9OMSMainRD` as the PEF special main. It
+is consistent with the symbol being absent from the target, the linker Main
+setting not being applied to the generated PEF, or CodeWarrior resolving the
+setting to the existing `main` symbol. It is not evidence that a descriptor
+main is invalid. Do not package or run this artifact.
+
 ## Classification
 
 ```text
 Static RoutineDescriptor construction is SDK-supported       PROVEN
 PEF Main can identify a data address                         PROVEN
 CFM infers 0x0FB0 from a function main                       DISPROVEN
-CodeWarrior accepts this data symbol as Main                 TO VERIFY
+CodeWarrior accepts this data symbol as Main                 FAILED in first build
 RD pointer resolves to handler TVector                        TO VERIFY
 Current direct path uses embedded ProcInfo=0                  PROVEN
 Changing Main to a static 0x0FB0 RD fixes the crash             HYPOTHESIS
