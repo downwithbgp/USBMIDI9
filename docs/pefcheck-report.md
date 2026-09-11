@@ -15,6 +15,30 @@ Fixture sha256 pins are enforced by `pefcheck/tests/pefcheck_tests.rs`.
 | E2a (special-main variant) | `e2a_oms.pef` | 257 | `fa86b26d…` | 0xF0 | ✓ | section 1 + 0x0 | **PASS** |
 | E2b (INVALID) | `e2b_oms.pef` | 257 | `87d12ec0…` | **0xE2** | **✗ (0xE2 % 16 = 2)** | section 1 + 0x0 | **INVALID** |
 
+## Fixture provenance and licensing
+
+The six fixtures above are checked in so the structural gates are
+reproducible on any host. Their provenance differs, and the distinction is
+deliberate:
+
+- `production_usbmidi9.pef` — our own CodeWarrior build (recovered from the
+  project's Ghidra import); MIT-covered like the rest of the repository.
+- `e1_oms.pef`, `e2a_oms.pef`, `e2b_oms.pef` — our own link experiments
+  (minimal-entry diagnostics; E2b is the deliberately broken alignment
+  control).
+- `tm_ppcc1.pef` (1,579 B) and `omslib_ppcc601.pef` (481 B) — **minimal
+  excerpts of Opcode OMS 2.3.8 resources**, kept as the authentic control
+  group. They are the only known-good reference for the CFM special-main
+  transition vector (`tm_ppcc1` is the shape that works on the G4), and
+  every "authentic" claim in this report rests on them. They are retained
+  deliberately as test vectors — 1,579 B and 481 B respectively, not
+  installable drivers, nothing the shipped USBMIDI9 code links or calls —
+  with the redistribution risk accepted; the repository's other Apple/Opcode
+  material stays outside the tree (`~/research`, per `docs/research.md`). If
+  that distribution policy changes, replace these two with synthetic
+  equivalents (the mutation/fixture generators in `pefcheck/tests` can
+  produce them) and update the sha256 pins.
+
 ## Per-artifact mechanical report (pefcheck output)
 
 ### tm_ppcc1.pef (authentic OMS Time Manager PPCC 1; works on the G4)
