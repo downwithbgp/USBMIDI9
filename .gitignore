@@ -27,3 +27,9 @@ USBMIDI9/
 
 # Python bytecode (tools/re smoke tests)
 __pycache__/
+
+# Preserved RD2 MacsBug session transcripts. They are referenced by name +
+# sha256 in docs/freemidi-driver-abi.md but contain raw dumps of proprietary
+# binaries, so they stay untracked on purpose — never commit or redistribute.
+RD2-SESSION.TXT
+RD2-SESSION2.TXT
