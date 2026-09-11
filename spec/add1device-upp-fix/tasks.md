@@ -65,6 +65,28 @@ Evidence:
 - [c5] No change to the ndrv target, no PEF byte patching, no new
   diagnostic PEF.
 
+## Implementation status (audit session)
+
+Implemented in commit `b88c5a7` (fix(oms): invoke omdvAddDevices add1device
+via Mixed Mode trampoline). Criteria against the current tree:
+
+- c1 — met: `oms/oms_driver.c:650/656` route the callback through
+  `CallOMSDvrAdd1DevProc1`; no direct call to `add1Device` remains.
+- c2 — met: `host-check/OMSDrvUPPs.h:38-57` models
+  `OMSDvrAdd1DevProc1UPP`, `uppOMSDvrAdd1DevProc1Info` and the
+  `CallUniversalProc` trampoline, so `make check-classic` compiles the UPP
+  surface.
+- c3 — covered by the host mock: `tests/test_oms_driver.c:272` implements
+  the `CallUniversalProc` mock and the trampoline path is exercised
+  (`:589`, `:1160`).
+- c4 — met: `make test`, `make test-sanitize`, `make check-classic` all
+  green on the current tree.
+- c5 — respected: the ndrv target is untouched; no PEF patching, no new
+  diagnostic PEF.
+
+Remaining gate: the post-fix production run on the G4 (OMS Setup discovery
+plus MIDI delivery) — the next hardware step, not a source change.
+
 ## Out of scope (do not change)
 
 - The ndrv class driver (known-good 87f39a22, use as-is).

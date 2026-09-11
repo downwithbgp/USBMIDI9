@@ -12,14 +12,20 @@ Current status:
   5.3, Mac OS 9): the driver matched the MIDIStreaming interface, and
   real Keystation 49e Note On/Off packets (`09 90 30 50` / `09 90 30 00`)
   were received through the ring buffer and the dispatch API.
-- **M4 OMS source gate**: an OMS driver shim (`'OMdv'` file, creator
-  `'USM9'`) implementing the verified Opcode OMS driver contract exists
-  with host tests. It has NOT yet been run inside OMS on the G4 — that is
-  the next hardware gate.
+- **M4 OMS**: the OMS driver shim (`'OMdv'` file, creator `'USM9'`)
+  implements the verified Opcode OMS driver contract, with host tests, and
+  the PPC/CFM entry path is proven on the G4 — **PPCC entry gate CLOSED**
+  (G4 runtime PASS, 2026-08-18: OMS calls the PPC main and handles the
+  failed-init path cleanly; `docs/g4-handoff.md`). The production
+  `add1Device` UPP crash found by the first production run is root-caused
+  and fixed (`spec/add1device-upp-fix/`). The next hardware gate is the
+  post-fix production run: OMS Setup discovery plus MIDI delivery.
 - MIDI output is not implemented yet (no USB bulk-OUT path; the OMS send
   hook drops and counts).
-- FreeMIDI: research only (file format verified; driver protocol not
-  authenticated — no FreeMIDI SDK found).
+- FreeMIDI: research only. The outer 68K driver ABI is recovered from the
+  authenticated FreeMIDI 1.45 corpus (`docs/freemidi-driver-abi.md`); the
+  remaining message/record semantics are unresolved, and no implementation
+  is started until they are.
 - A known hot-plug freeze exists; see `docs/classic-usb-driver.md` §9.9.
 
 One device (M-Audio / Evolution Keystation 49e) has been validated on one
@@ -54,7 +60,9 @@ make clean
 ```
 
 `make test CC=clang` uses Clang. CI runs GCC and Clang plus a sanitizer
-run.
+run, the RE-tool smoke tests and the trace gate (`make check-re-tools`,
+`make check-trace`), and the `pefcheck` crate (`cargo test`, `fmt`,
+`clippy`).
 
 ## Documentation
 
@@ -66,6 +74,9 @@ run.
   binaries (material stays outside the repo, per `~/research`).
 - `docs/freemidi-driver-research.md` — FreeMIDI findings and open ABI
   questions.
+- `docs/freemidi-driver-abi.md` — the recovered FreeMIDI 1.45 driver ABI
+  and the remaining semantic questions; `docs/freemidi-driver-abi-evidence.md`
+  is the raw byte/offset ledger behind it.
 - `docs/classic-usb-driver.md` — the Classic USB driver research and the
   real-G4 hardware log.
 - `docs/distribution.md` — the period-correct release layout.

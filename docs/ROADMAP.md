@@ -3,13 +3,15 @@
 Current status: **M1B hardware gate PASSED** (real G4: matching, dispatch,
 bulk receive — `docs/classic-usb-driver.md` §9.5/§9.8; one unresolved
 defect: hard freeze on unrelated-device hot-plug while USBMIDI9 is active,
-§9.9). **M4 OMS: historical research gate PASSED; adapter logic partial
-(source work); real-target source gate BLOCKED until the authentic
-receive/lifecycle is verified on the G4; G4 build/test NOT YET
-attempted.** The OMS receive-scheduling correction (push callback +
-USB Manager device notifications, no poll timer, no per-tick USB walk)
-is implemented and host-tested (`spec/oms-g4-audit/`); the G4 hardware
-gate is NEXT.
+§9.9). **M4 OMS: research gate PASSED; OMS shim implemented and
+host-tested; the G4 build/entry gates PASSED — the PPCC entry gate is
+CLOSED (G4 runtime PASS, 2026-08-18), and the production `add1Device` UPP
+crash found by the first production run is root-caused and fixed
+(`spec/add1device-upp-fix/`).** The OMS receive-scheduling correction
+(push callback + USB Manager device notifications, no poll timer, no
+per-tick USB walk) is implemented and host-tested (`spec/oms-g4-audit/`).
+The next hardware gate is the post-fix production integration run on the
+G4 (OMS Setup discovery + MIDI delivery).
 
 ## M0 — Repository and portable core
 
@@ -53,13 +55,15 @@ unrelated-device hot-plug freeze (`spec/m1b-hotplug/tasks.md`).
 ## M4 — OMS
 
 * OMS research gate — **PASSED** (primary sources; `docs/research.md`)
-* OMS adapter logic — **partial/source work** (omdv dispatch + device
-  registration correct; receive scheduling corrected in the oms-g4-audit
-  pass: push event callback + USB Manager device notifications, no
-  Notification Manager timer, no per-tick USB walk)
-* OMS real-target source gate — **BLOCKED** until the authentic receive
-  scheduling/lifetime is verified against real OMS on the G4
-* OMS G4 build/test — **NOT YET attempted**
+* OMS adapter logic — **implemented + host-tested** (omdv dispatch + device
+  registration; receive scheduling corrected in the oms-g4-audit pass: push
+  event callback + USB Manager device notifications, no Notification
+  Manager timer, no per-tick USB walk)
+* OMS real-target source gate — **entry path PASSED** (PPCC entry gate
+  CLOSED, G4 runtime PASS 2026-08-18; production `add1Device` UPP defect
+  root-caused and fixed, `spec/add1device-upp-fix/`)
+* OMS G4 build/test — **build gates + entry diagnostics PASSED**; the
+  post-fix production run is the next gate
 * OMS Setup discovers USBMIDI9 — **hardware gate (next)**
 * Keystation produces MIDI in OMS — **hardware gate**
 * ReBirth receives keyboard input — **hardware gate**
@@ -73,9 +77,11 @@ unrelated-device hot-plug freeze (`spec/m1b-hotplug/tasks.md`).
 
 ## M6 — FreeMIDI
 
-* research — **done** (`docs/freemidi-driver-research.md`; driver message
-  protocol NOT authenticated — no SDK found)
-* implementation — **blocked on protocol authentication**
+* research — **expanded** (`docs/freemidi-driver-research.md`): the outer
+  68K driver ABI is recovered from the authenticated FreeMIDI 1.45 corpus
+  (`docs/freemidi-driver-abi.md` + `docs/freemidi-driver-abi-evidence.md`);
+  the remaining message/record semantics are unresolved
+* implementation — **blocked on the remaining protocol semantics**
 
 ## v0.1 acceptance matrix
 
@@ -93,8 +99,9 @@ OMS
   [TODO] output (blocked on the USB bulk-OUT path)
 
 FreeMIDI
-  [research] file format verified; driver protocol NOT authenticated —
-  no implementation until then
+  [research] file format verified; outer 68K driver ABI recovered from the
+  1.45 corpus; message/record semantics unresolved — no implementation
+  until then
 
 DISTRIBUTION
   [TODO] resource forks preserved (StuffIt; docs/distribution.md)
