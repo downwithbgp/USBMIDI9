@@ -15,9 +15,10 @@
  * This module is portable C (C89/C90), endian-neutral (all fields are byte
  * oriented), and has no dependency on Classic Mac OS, OMS, or FreeMIDI.
  *
- * TODO: SysEx packetization/reassembly (splitting a MIDI SysEx stream into
- * start/continue/end Event Packets and joining them back) is transport-layer
- * work and is not implemented here yet.
+ * SysEx packetization/reassembly (splitting a MIDI SysEx stream into
+ * start/continue/end Event Packets and joining them back) lives in
+ * midi_stream.h/.c; this module keeps the single-packet encode/decode
+ * only.
  */
 
 #ifndef USBMIDI9_CORE_PACKETS_H
@@ -72,7 +73,7 @@ int um9_packet_decode(const unsigned char *buf, unsigned len, um9_packet *out);
  * Supports channel voice messages (0x80..0xEF) and the non-SysEx system
  * messages with a fixed length of 1..3 bytes. SysEx (0xF0/0xF7) and the
  * undefined statuses 0xF4/0xF5 are rejected (returns 0); SysEx
- * packetization is transport-layer work (see TODO above).
+ * packetization lives in midi_stream.h/.c.
  *
  * Returns 1 on success, 0 on any invalid input: cable > 15, msg NULL,
  * len outside 1..3, len not matching the status byte's message size, or a
