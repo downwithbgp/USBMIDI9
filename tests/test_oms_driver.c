@@ -304,6 +304,7 @@ long CallUniversalProc(UniversalProcPtr theProcPtr, ProcInfoType procInfo, ...)
  * invoke it. */
 static int gNewRDCalls;
 static int gDisposeRDCalls;
+static int gNewRDFail;                  /* failure injection */
 static ProcPtr gLastRDProc;
 static ProcInfoType gLastRDProcInfo;
 static ISAType gLastRDISA;
@@ -313,6 +314,9 @@ UniversalProcPtr mock_NewRoutineDescriptor(ProcPtr theProc,
                                            ISAType theISA)
 {
     gNewRDCalls++;
+    if (gNewRDFail) {
+        return NULL;                    /* allocation failure */
+    }
     gLastRDProc = theProc;
     gLastRDProcInfo = theProcInfo;
     gLastRDISA = theISA;
@@ -1436,6 +1440,47 @@ static void test_upp_reinit_recreates(void)
     CHECK(gDisposeRDCalls == 2);
 }
 
+/* A failed RoutineDescriptor build must never hand OMS a NULL send proc:
+ * omdvGetPortSendProc retries the build at task time and, when it still
+ * fails, reports the error with cleared out-params instead of a bogus
+ * UPP (OMS invokes the returned proc without further checking). */
+static void test_send_proc_null_guard(void)
+{
+    OMSPortID portID;
+    OMSSendParams sendPars;
+
+    mock_setup(1u);
+    gNewRDFail = 1;
+    CHECK(oms_driver_main(omdvInit, 0L, 0L) == 0L);
+    CHECK(g_oms.sendUpp == NULL);           /* the descriptor build failed */
+
+    portID.driverID = kUSBMIDI9OMSDriverSignature;
+    portID.whichInterface = 1;
+    portID.whichPort = 0;
+
+    /* Still failing: error return, poison value must not survive. */
+    sendPars.proc = (UniversalProcPtr)&sendPars;
+    sendPars.paramD0 = -1L;
+    sendPars.paramD1 = -1L;
+    CHECK(oms_driver_main(omdvGetPortSendProc, (long)(Ptr)&portID,
+                          (long)(Ptr)&sendPars) == kUSBBadDispatchTable);
+    CHECK(sendPars.proc == NULL);
+    CHECK(sendPars.paramD0 == 0L);
+    CHECK(sendPars.paramD1 == 0L);
+
+    /* Task-time retry succeeds once the allocation works again. */
+    gNewRDFail = 0;
+    CHECK(oms_driver_main(omdvGetPortSendProc, (long)(Ptr)&portID,
+                          (long)(Ptr)&sendPars) == 0L);
+    CHECK(sendPars.proc == g_oms.sendUpp);
+    CHECK(sendPars.proc != NULL);
+    CHECK(sendPars.paramD0 == (1L << 8));   /* (iface << 8) | cable */
+
+    CHECK(oms_driver_main(omdvDispose, 0L, 0L) == 0L);
+    CHECK(g_oms.sendUpp == NULL);
+    gNewRDFail = 0;                         /* leave the flag clean */
+}
+
 /* ---- runner ---------------------------------------------------------- */
 
 int test_oms_driver_run(void)
@@ -1444,6 +1489,7 @@ int test_oms_driver_run(void)
     test_connid_signature_guard();
     test_send_proc_is_upp();
     test_upp_reinit_recreates();
+    test_send_proc_null_guard();
     test_init_locate();
     test_init_no_driver();
     test_init_twice();

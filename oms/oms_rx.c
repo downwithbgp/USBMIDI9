@@ -169,6 +169,12 @@ void oms_rx_drain(unsigned ifaceIndex, unsigned deliver)
                 oms_rx_deliver(&pkt, port->ioRefNum);
             }
         }
+        if ((n & 3u) != 0u) {
+            /* A transfer that does not end on a 4-byte Event Packet
+             * boundary (a nonconformant device): the remainder is
+             * already dequeued and cannot be re-framed; count it. */
+            g_oms.rxDropped += (unsigned long)(n & 3u);
+        }
     }
 }
 
@@ -190,8 +196,10 @@ void oms_rx_drain_all(unsigned deliver)
 
 /* The class driver's event callback (dispatch table v0x0002): runs
  * inside the driver's read completion. Delivers only while MIDI is
- * running; bytes that arrive while MIDI is off stay in the ring and are
- * discarded at the next omdvStartMIDI2. */
+ * running; bytes that arrive while MIDI is off are drained through the
+ * stream and dropped (deliver = 0) so the continuation state stays
+ * current, and omdvStartMIDI2 discards any remaining backlog before it
+ * starts delivering. */
 void oms_rx_event(UInt32 ifaceIndex, UInt32 refcon)
 {
     (void)refcon;

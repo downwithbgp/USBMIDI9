@@ -354,8 +354,12 @@ static OSErr oms_init(OMSFile *file)
 
     /* PPC: build the send-proc RoutineDescriptor once per init
      * (NewOMSReadHook2 -> NewRoutineDescriptor, the authentic OMSUPPs.h
-     * constructor; it may allocate, so this is task time, never
-     * omdvGetPortSendProc). The generated OMSUPPs.h ships no Dispose
+     * constructor; it may allocate, so it runs at task time). If the
+     * allocation fails, omdvGetPortSendProc retries it under the same
+     * constraint — the retry is safe only under the documented
+     * assumption that OMS sends that configuration message at task
+     * time (no in-repo evidence either way; its sibling lifecycle
+     * messages are task time). The generated OMSUPPs.h ships no Dispose
      * wrapper; the re-entry guard above and omdvDispose release the
      * descriptor with the underlying Mixed Mode Manager call
      * (DisposeRoutineDescriptor, UI 3.3.2) so repeated omdvInit never
@@ -738,6 +742,20 @@ static OSErr oms_get_port_send_proc(OMSPortID *portID, OMSSendParams *sendPars)
      * paramD0 is passed as the readHookRefCon; the low word of paramD1
      * is passed in the packet's appConnRefCon. The proc may be called
      * at interrupt level. */
+    if (g_oms.sendUpp == NULL) {
+        /* The descriptor build failed at omdvInit (memory pressure).
+         * This message is sent by OMS at task time during
+         * configuration, so retry the allocation here. */
+        g_oms.sendUpp = NewOMSReadHook2(oms_tx_send);
+    }
+    if (g_oms.sendUpp == NULL) {
+        /* Never hand OMS a NULL proc: it invokes the returned UPP
+         * without further checking. Report the failure instead. */
+        sendPars->proc = NULL;
+        sendPars->paramD0 = 0L;
+        sendPars->paramD1 = 0L;
+        return kUSBBadDispatchTable;
+    }
     sendPars->proc = g_oms.sendUpp;
     sendPars->paramD0 = (long)((ifaceNo << 8) | cable);
     sendPars->paramD1 = 0L;
