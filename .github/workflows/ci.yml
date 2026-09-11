@@ -2,6 +2,12 @@
 # The Classic Mac OS layers (classic/, probe/) are compile-checked on
 # Linux against minimal stub headers (make check-classic); the real
 # driver/probe build happens in CodeWarrior on the Power Mac G4.
+#
+# Jobs:
+#   build     core tests (GCC + Clang), ASan/UBSan, Classic compile check
+#   gates     RE-tool smoke tests (make check-re-tools, capstone installed)
+#             and the OMS trace-build trap gate (make check-trace)
+#   pefcheck  the PEF checker crate: cargo test + fmt + clippy
 
 name: CI
 
@@ -25,3 +31,34 @@ jobs:
         run: make test-sanitize CC=${{ matrix.cc }}
       - name: Classic sources compile check (stub headers)
         run: make check-classic CC=${{ matrix.cc }}
+
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install capstone (tools/re disassembler smoke tests)
+        run: python3 -m pip install capstone
+      - name: RE tool smoke tests
+        run: make check-re-tools
+      - name: OMS trace build gate (15 trap words in .text)
+        run: make check-trace
+
+  pefcheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pefcheck
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Tests (unit + property)
+        run: cargo test --locked
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
