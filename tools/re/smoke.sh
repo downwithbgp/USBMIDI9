@@ -30,6 +30,16 @@ else
     say "  SKIP: capstone not installed"
 fi
 
+say "== scan_freemidi_calls.py (synthetic 68K: +0x118 displacement + CODE1 direct call) =="
+if python3 -c "import capstone" 2>/dev/null; then
+    OUT=$(python3 scan_freemidi_calls.py $FIX/freemidi_call_probe.bin)
+    echo "$OUT" | grep -q "signatures 2" && \
+    echo "$OUT" | grep -q "object+0x118 displacement" && \
+    echo "$OUT" | grep -q "CODE1+0x38e70 direct call" && ok "scan_freemidi_calls" || bad "scan_freemidi_calls: $OUT"
+else
+    say "  SKIP: capstone not installed"
+fi
+
 say "== pef_unpack.py (production PackedData: 269 -> 468, COMPLETE) =="
 OUT=$(python3 pef_unpack.py $PEF/production_usbmidi9.pef 0x2410 269 468)
 echo "$OUT" | grep -q "COMPLETE" && ok "production unpack" || bad "production unpack: $OUT"
@@ -51,13 +61,17 @@ OUT=$(python3 pef_analyze.py $PEF/production_usbmidi9.pef)
 echo "$OUT" | grep -q "USBManagerLib" && echo "$OUT" | grep -q "CallUniversalProc" && echo "$OUT" | grep -q "main" && ok "pef_analyze" || bad "pef_analyze: $OUT"
 
 say "== ppcc_abi_report.py (function-main/vector versus TM and RD2) =="
-OUT=$(python3 ppcc_abi_report.py ../../USBMIDI9/USBMIDI9_OMS.production-save \
-    --control $PEF/tm_ppcc1.pef --rejected ../../USBMIDI9/USBMIDI9_OMS_RD2)
-echo "$OUT" | grep -q "OMS ProcInfo: 0x00000fb0" && \
-echo "$OUT" | grep -q "main-representation=transition-vector" && \
-echo "$OUT" | grep -q "rejected-experiment.*" && \
-echo "$OUT" | grep -q "descriptor-main-status=REJECTED" && \
-echo "$OUT" | grep -q "DIAGNOSTIC: PASS" && ok "ppcc ABI report" || bad "ppcc ABI report: $OUT"
+if [ -f ../../USBMIDI9/USBMIDI9_OMS.production-save ] && [ -f ../../USBMIDI9/USBMIDI9_OMS_RD2 ]; then
+    OUT=$(python3 ppcc_abi_report.py ../../USBMIDI9/USBMIDI9_OMS.production-save \
+        --control $PEF/tm_ppcc1.pef --rejected ../../USBMIDI9/USBMIDI9_OMS_RD2)
+    echo "$OUT" | grep -q "OMS ProcInfo: 0x00000fb0" && \
+    echo "$OUT" | grep -q "main-representation=transition-vector" && \
+    echo "$OUT" | grep -q "rejected-experiment.*" && \
+    echo "$OUT" | grep -q "descriptor-main-status=REJECTED" && \
+    echo "$OUT" | grep -q "DIAGNOSTIC: PASS" && ok "ppcc ABI report" || bad "ppcc ABI report: $OUT"
+else
+    say "  SKIP: live CodeWarrior area (USBMIDI9/) not present on this host"
+fi
 
 say "== rsrc_list.py (synthetic resource fork: TEST 128) =="
 OUT=$(python3 rsrc_list.py $FIX/rsrcfork.bin)

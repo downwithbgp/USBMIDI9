@@ -7,6 +7,9 @@ Outputs (into tools/re/fixtures/):
                     entry carrying a tiny resource fork (built by this
                     script; the fork is an OMdi-bearing resource fork)
   omdi_smoke.rsrc   a minimal resource fork with OMdi 128 + OMdv 128
+  freemidi_call_probe.bin
+                    a 12-byte 68K blob carrying the two raw signatures
+                    scan_freemidi_calls.py scans for
 
 All bytes are generated here — no proprietary content.
 """
@@ -270,8 +273,13 @@ def main():
     open(os.path.join(OUT, "lzh13_smoke.bin"), "wb").write(lzh)
     open(os.path.join(OUT, "lzh13_smoke.plain"), "wb").write(plain)
 
-    print("wrote hqx_smoke.hqx (%d B), sit5_smoke.sit (%d B), omdi_smoke.rsrc (%d B), lzh13_smoke.bin (%d B)"
-          % (len(hqx), len(sit), len(fork), len(lzh)))
+    # 5. 68K probe for scan_freemidi_calls.py: a +0x118 object displacement
+    #    (movea.l 0x118(a2),a0), the CODE1+0x38e70 direct call, and an rts.
+    call_probe = b"\x20\x6a\x01\x18\x4e\xb9\x00\x03\x8e\x70\x4e\x75"
+    open(os.path.join(OUT, "freemidi_call_probe.bin"), "wb").write(call_probe)
+
+    print("wrote hqx_smoke.hqx (%d B), sit5_smoke.sit (%d B), omdi_smoke.rsrc (%d B), lzh13_smoke.bin (%d B), freemidi_call_probe.bin (%d B)"
+          % (len(hqx), len(sit), len(fork), len(lzh), len(call_probe)))
 
 
 if __name__ == "__main__":

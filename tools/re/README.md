@@ -22,6 +22,7 @@ Run the smoke tests: `make check-re-tools` (or `tools/re/smoke.sh`).
 | `appledouble.py` | AppleDouble parse / resource-fork extract | `appledouble.py FILE [OUT]` |
 | `omsabi.py` | OMSDevice mac68k ABI audit (sizeof 0xB6 = 182) | `omsabi.py` |
 | `procinfo_check.c` | mechanical ProcInfo decodes (0xFB0, 0x2F0, A1/D0) | `cc -o pi procinfo_check.c && ./pi` |
+| `scan_freemidi_calls.py` | generic Capstone/raw scan for 68K `+0x118` object references and direct calls to the recovered IDvr wrapper | `python3 tools/re/scan_freemidi_calls.py extracted-CODE1` |
 | `bdiff.py` | byte-diff two binaries, differing runs | `bdiff.py FILE_A FILE_B` |
 | `oms_errors.py` | extract OMS error constants from SDK OMS.h | `oms_errors.py OMS_H [SPEC_TXT]` |
 | `ghidra/ApplyLabels.java` | reapply `docs/re/ghidra-functions.csv` labels on a fresh Ghidra import | Ghidra script (headless or GUI) |
